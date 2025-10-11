@@ -90,6 +90,89 @@ export const db = {
       return { data, error }
     },
 
+    // Get user by special ID (username#discriminator)
+    getBySpecialId: async (specialId) => {
+      const { data, error } = await supabase
+        .rpc('get_user_by_special_id', { special_id: specialId })
+      
+      // Handle case where user_discriminator might be null
+      let user = data?.[0] || null
+      if (user && !user.user_discriminator) {
+        user.user_discriminator = '0000' // Default fallback
+      }
+      
+      return { data: user, error }
+    },
+
+    // Generate discriminator for username
+    generateDiscriminator: async (username) => {
+      const { data, error } = await supabase
+        .rpc('generate_discriminator', { target_username: username })
+      return { data, error }
+    },
+
+    // Migrate existing users without discriminators
+    migrateExistingUsers: async () => {
+      const { data, error } = await supabase
+        .rpc('migrate_existing_users')
+      return { data, error }
+    },
+
+    // Get all users (for debugging)
+    getAll: async () => {
+      try {
+        console.log('🔍 DB: Getting sample users...')
+        
+        // First try with user_discriminator column
+        let { data, error } = await supabase
+          .from('users')
+          .select('id, username, user_discriminator, display_name, avatar_url, is_online')
+          .limit(10)
+        
+        // If error (possibly missing column), try without user_discriminator
+        if (error && error.message.includes('user_discriminator')) {
+          console.log('🔍 DB: user_discriminator column not found, trying without it')
+          const fallbackResult = await supabase
+            .from('users')
+            .select('id, username, display_name, avatar_url, is_online')
+            .limit(10)
+          
+          data = fallbackResult.data
+          error = fallbackResult.error
+          
+          // Add fallback discriminator
+          if (data) {
+            data.forEach(user => {
+              user.user_discriminator = '0000'
+            })
+          }
+        }
+        
+        console.log('🔍 DB: Sample users result:', { data, error })
+        return { data, error }
+      } catch (err) {
+        console.error('🔍 DB: Sample users error:', err)
+        return { data: null, error: err }
+      }
+    },
+
+    // Test database connection
+    testConnection: async () => {
+      try {
+        console.log('🔍 DB: Testing connection...')
+        const { data, error } = await supabase
+          .from('users')
+          .select('id')
+          .limit(1)
+        
+        console.log('🔍 DB: Connection test result:', { data, error })
+        return { data: { connected: !error, userCount: data?.length || 0 }, error }
+      } catch (err) {
+        console.error('🔍 DB: Connection test error:', err)
+        return { data: null, error: err }
+      }
+    },
+
     // Update user
     update: async (userId, updates) => {
       const { data, error } = await supabase
@@ -102,11 +185,57 @@ export const db = {
 
     // Search users by username
     search: async (searchTerm) => {
+      try {
+        // First try with user_discriminator column
+        let { data, error } = await supabase
+          .from('users')
+          .select('id, username, user_discriminator, display_name, avatar_url, is_online')
+          .ilike('username', `%${searchTerm}%`)
+          .limit(10)
+        
+        // If error (possibly missing column), try without user_discriminator
+        if (error && (error.message.includes('user_discriminator') || error.message.includes('column'))) {
+          const fallbackResult = await supabase
+            .from('users')
+            .select('id, username, display_name, avatar_url, is_online')
+            .ilike('username', `%${searchTerm}%`)
+            .limit(10)
+          
+          data = fallbackResult.data
+          error = fallbackResult.error
+        }
+        
+        // Handle users without discriminators (for backward compatibility)
+        if (data) {
+          data.forEach(user => {
+            if (!user.user_discriminator) {
+              user.user_discriminator = '0000' // Default fallback
+            }
+          })
+        }
+        
+        return { data, error }
+      } catch (err) {
+        console.error('Search function error:', err)
+        return { data: null, error: err }
+      }
+    },
+
+    // Get all online users
+    getOnlineUsers: async () => {
       const { data, error } = await supabase
         .from('users')
-        .select('id, username, display_name, avatar_url, is_online')
-        .ilike('username', `%${searchTerm}%`)
-        .limit(10)
+        .select('id, username, display_name, avatar_url, is_online, last_seen')
+        .eq('is_online', true)
+        .order('last_seen', { ascending: false })
+        .limit(50)
+      return { data, error }
+    },
+
+    // Get users that are not friends yet (for suggestions)
+    getNotFriends: async (userId) => {
+      const { data, error } = await supabase
+        .rpc('get_non_friends', { current_user_id: userId })
       return { data, error }
     },
 

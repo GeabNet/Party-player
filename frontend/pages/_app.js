@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import '../styles/globals.css';
 import { AuthProvider } from '../contexts/AuthContext';
+import { SocketProvider } from '../contexts/SocketContext';
 
 /**
  * Main Next.js App component
@@ -46,7 +47,9 @@ function MyApp({ Component, pageProps }) {
 
   return (
     <AuthProvider>
-      <Component {...pageProps} />
+      <SocketProvider>
+        <Component {...pageProps} />
+      </SocketProvider>
     </AuthProvider>
   );
 }

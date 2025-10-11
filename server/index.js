@@ -69,6 +69,19 @@ app.get('/health', (req, res) => {
 const rooms = {};
 
 /**
+ * In-memory storage for online users
+ * Structure: {
+ *   userId: {
+ *     socketId: string,
+ *     userProfile: object,
+ *     connectedAt: timestamp,
+ *     lastSeen: timestamp
+ *   }
+ * }
+ */
+const onlineUsers = {};
+
+/**
  * Generate a random 6-character room code
  */
 function generateRoomCode() {
@@ -115,6 +128,58 @@ function cleanupEmptyRooms() {
       delete rooms[roomCode];
     }
   });
+}
+
+/**
+ * Add user to online users
+ */
+function addOnlineUser(userId, socketId, userProfile) {
+  if (userId) {
+    onlineUsers[userId] = {
+      socketId,
+      userProfile,
+      connectedAt: new Date().toISOString(),
+      lastSeen: new Date().toISOString()
+    };
+    
+    // Broadcast online users update to all connected sockets
+    io.emit('online-users-updated', getOnlineUsersList());
+    console.log(`User ${userProfile?.username || userId} is now online`);
+  }
+}
+
+/**
+ * Remove user from online users
+ */
+function removeOnlineUser(userId) {
+  if (userId && onlineUsers[userId]) {
+    const user = onlineUsers[userId];
+    delete onlineUsers[userId];
+    
+    // Broadcast online users update to all connected sockets
+    io.emit('online-users-updated', getOnlineUsersList());
+    console.log(`User ${user.userProfile?.username || userId} went offline`);
+  }
+}
+
+/**
+ * Get formatted online users list
+ */
+function getOnlineUsersList() {
+  return Object.keys(onlineUsers).map(userId => ({
+    id: userId,
+    ...onlineUsers[userId].userProfile,
+    lastSeen: onlineUsers[userId].lastSeen
+  }));
+}
+
+/**
+ * Update user's last seen timestamp
+ */
+function updateUserLastSeen(userId) {
+  if (userId && onlineUsers[userId]) {
+    onlineUsers[userId].lastSeen = new Date().toISOString();
+  }
 }
 
 // API Routes
@@ -196,6 +261,31 @@ app.get('/api/recommend', (req, res) => {
 // Socket.IO Connection Handling
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
+
+  /**
+   * User goes online
+   */
+  socket.on('user-online', ({ userId, userProfile }) => {
+    console.log('User going online:', { userId, username: userProfile?.username });
+    addOnlineUser(userId, socket.id, userProfile);
+    
+    // Send current online users list to the newly connected user
+    socket.emit('online-users-updated', getOnlineUsersList());
+  });
+
+  /**
+   * User sends heartbeat to stay online
+   */
+  socket.on('heartbeat', ({ userId }) => {
+    updateUserLastSeen(userId);
+  });
+
+  /**
+   * Get current online users
+   */
+  socket.on('get-online-users', () => {
+    socket.emit('online-users-updated', getOnlineUsersList());
+  });
 
   /**
    * Join a room
@@ -462,6 +552,12 @@ io.on('connection', (socket) => {
    */
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
+    
+    // Find and remove user from online users
+    const userId = Object.keys(onlineUsers).find(id => onlineUsers[id].socketId === socket.id);
+    if (userId) {
+      removeOnlineUser(userId);
+    }
     
     // Remove user from all rooms and cleanup
     Object.keys(rooms).forEach(roomCode => {
