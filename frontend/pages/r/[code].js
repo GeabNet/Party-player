@@ -15,7 +15,7 @@ import { getAvatarUrl, getYouTubeApiUrl } from '../../utils/urls';
 export default function Room() {
   const router = useRouter();
   const { code } = router.query;
-  const { user, userProfile, loading, sendFriendRequest } = useAuth();
+  const { user, userProfile, loading, sessionRestored, sendFriendRequest } = useAuth();
   
   // Socket and room state
   const [socket, setSocket] = useState(null);
@@ -47,10 +47,10 @@ export default function Room() {
    * Redirect to login if not authenticated
    */
   useEffect(() => {
-    if (!loading && !user) {
+    if (sessionRestored && !loading && !user) {
       router.push('/login');
     }
-  }, [user, loading, router]);
+  }, [user, loading, sessionRestored, router]);
 
   // Voice chat state
   const [voiceUsers, setVoiceUsers] = useState([]);

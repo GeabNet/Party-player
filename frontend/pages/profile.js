@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext'
 
 export default function Profile() {
   const router = useRouter()
-  const { user, userProfile, loading, uploadAvatar, updateProfile, signOut } = useAuth()
+  const { user, userProfile, loading, sessionRestored, uploadAvatar, updateProfile, signOut } = useAuth()
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [uploadSuccess, setUploadSuccess] = useState('')
@@ -24,7 +24,7 @@ export default function Profile() {
   }, [userProfile, displayName])
 
   // Redirect if not authenticated
-  if (!loading && !user) {
+  if (sessionRestored && !loading && !user) {
     router.push('/login')
     return null
   }

@@ -17,23 +17,55 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
   const [userProfile, setUserProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [sessionRestored, setSessionRestored] = useState(false)
   const [friends, setFriends] = useState([])
   const [pendingRequests, setPendingRequests] = useState([])
   const [pendingInvites, setPendingInvites] = useState([])
   const router = useRouter()
 
   useEffect(() => {
+    let mounted = true;
+
     // Get initial session
-    getInitialSession()
+    const initializeAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        
+        if (mounted) {
+          if (session?.user) {
+            setUser(session.user)
+            await loadUserProfile(session.user.id)
+            await loadUserData(session.user.id)
+          } else {
+            setUser(null)
+            setUserProfile(null)
+            setFriends([])
+            setPendingRequests([])
+            setPendingInvites([])
+          }
+          setSessionRestored(true)
+          setLoading(false)
+        }
+      } catch (error) {
+        console.error('Error initializing auth:', error)
+        if (mounted) {
+          setSessionRestored(true)
+          setLoading(false)
+        }
+      }
+    }
+
+    initializeAuth()
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('Auth event:', event, session)
       
+      if (!mounted) return;
+      
       if (session?.user) {
         setUser(session.user)
         await loadUserProfile(session.user.id)
-        await updateOnlineStatus(session.user.id, true)
         await loadUserData(session.user.id)
       } else {
         setUser(null)
@@ -47,25 +79,10 @@ export const AuthProvider = ({ children }) => {
     })
 
     return () => {
+      mounted = false;
       subscription.unsubscribe()
     }
   }, [])
-
-  const getInitialSession = async () => {
-    try {
-      const { session } = await auth.getSession()
-      if (session?.user) {
-        setUser(session.user)
-        await loadUserProfile(session.user.id)
-        await updateOnlineStatus(session.user.id, true)
-        await loadUserData(session.user.id)
-      }
-    } catch (error) {
-      console.error('Error getting initial session:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const loadUserProfile = async (userId) => {
     try {
@@ -133,17 +150,6 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
-  const updateOnlineStatus = async (userId, isOnline) => {
-    try {
-      await db.users.update(userId, { 
-        is_online: isOnline,
-        last_seen: new Date().toISOString()
-      })
-    } catch (error) {
-      console.error('Error updating online status:', error)
-    }
-  }
-
   const signUp = async (email, password, username, displayName) => {
     try {
       setLoading(true)
@@ -154,6 +160,13 @@ export const AuthProvider = ({ children }) => {
         return { error: { message: 'Username is already taken' } }
       }
 
+      // Generate discriminator for unique ID
+      const { data: discriminator, error: discError } = await db.users.generateDiscriminator(username)
+      if (discError) {
+        console.error('Error generating discriminator:', discError)
+        return { error: { message: 'Error generating user ID' } }
+      }
+
       // Sign up with Supabase Auth
       const { data, error } = await auth.signUp(email, password, {
         username,
@@ -162,10 +175,11 @@ export const AuthProvider = ({ children }) => {
 
       if (error) return { error }
 
-      // Create user profile
+      // Create user profile with discriminator
       if (data.user) {
         const { error: profileError } = await db.users.create(data.user.id, {
           username,
+          user_discriminator: discriminator,
           display_name: displayName,
           avatar_url: getAvatarUrl(username)
         })
@@ -199,22 +213,26 @@ export const AuthProvider = ({ children }) => {
     try {
       setLoading(true)
       
-      // Update offline status before signing out
-      if (user?.id) {
-        await updateOnlineStatus(user.id, false)
+      // Sign out from Supabase
+      const { error } = await auth.signOut()
+      if (error) {
+        console.error('Sign out error:', error)
+        throw error
       }
       
-      const { error } = await auth.signOut()
-      if (!error) {
-        setUser(null)
-        setUserProfile(null)
-        setFriends([])
-        setPendingRequests([])
-        setPendingInvites([])
-        router.push('/')
-      }
-      return { error }
+      // Clear all state
+      setUser(null)
+      setUserProfile(null)
+      setFriends([])
+      setPendingRequests([])
+      setPendingInvites([])
+      
+      // Redirect to login page
+      router.push('/login')
+      
+      return { success: true }
     } catch (error) {
+      console.error('signOut error:', error)
       return { error }
     } finally {
       setLoading(false)
@@ -284,6 +302,46 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
+  const sendFriendRequestBySpecialId = async (specialId) => {
+    try {
+      if (!user?.id) {
+        return { error: { message: 'Not authenticated' } }
+      }
+
+      // Validate special ID format (username#0000)
+      if (!specialId.includes('#') || !/^.+#\d{4}$/.test(specialId)) {
+        return { error: { message: 'Invalid user ID format. Use username#0000' } }
+      }
+
+      // Find user by special ID
+      const { data: targetUser, error: userError } = await db.users.getBySpecialId(specialId)
+      if (userError || !targetUser) {
+        return { error: { message: 'User not found' } }
+      }
+
+      if (targetUser.id === user.id) {
+        return { error: { message: 'Cannot send friend request to yourself' } }
+      }
+
+      // Check if already friends or request exists
+      const existingFriends = friends.find(f => f.id === targetUser.id)
+      if (existingFriends) {
+        return { error: { message: 'Already friends with this user' } }
+      }
+
+      const result = await db.friends.sendRequest(user.id, targetUser.id)
+      if (result && !result.error) {
+        // Refresh pending requests
+        await loadUserData(user.id)
+        return { success: true, data: result.data, targetUser }
+      }
+      return result
+    } catch (error) {
+      console.error('sendFriendRequestBySpecialId error:', error)
+      return { error: { message: error.message || 'Failed to send friend request' } }
+    }
+  }
+
   const acceptFriendRequest = async (requestId) => {
     try {
       const { data, error } = await db.friends.acceptRequest(requestId)
@@ -314,7 +372,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const { data, error } = await db.friends.removeFriend(friendshipId)
       if (!error) {
-        // Refresh friends list
+        // Refresh user data
         await loadUserData(user.id)
       }
       return { data, error }
@@ -323,15 +381,20 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
-  // Room invite functions
-  const sendRoomInvite = async (friendId, roomCode, roomData) => {
+  const sendRoomInvite = async (toUserId, roomCode, roomData = {}) => {
     try {
-      if (!user?.id) return { error: { message: 'Not authenticated' } }
+      if (!user?.id) {
+        return { error: { message: 'Not authenticated' } }
+      }
 
-      const { data, error } = await db.invites.sendInvite(user.id, friendId, roomCode, roomData)
-      return { data, error }
-    } catch (error) {
+      const { data, error } = await db.invites.sendInvite(user.id, toUserId, roomCode, roomData)
+      if (!error) {
+        return { success: true, data }
+      }
       return { error }
+    } catch (error) {
+      console.error('sendRoomInvite error:', error)
+      return { error: { message: error.message || 'Failed to send room invite' } }
     }
   }
 
@@ -385,6 +448,7 @@ export const AuthProvider = ({ children }) => {
     user,
     userProfile,
     loading,
+    sessionRestored,
     friends,
     pendingRequests,
     pendingInvites,
@@ -394,6 +458,7 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     uploadAvatar,
     sendFriendRequest,
+    sendFriendRequestBySpecialId,
     acceptFriendRequest,
     rejectFriendRequest,
     removeFriend,

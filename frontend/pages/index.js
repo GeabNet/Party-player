@@ -11,7 +11,7 @@ import { getAvatarUrl } from '../utils/urls';
  * Provides the main entry point to the watch party application
  */
 export default function Home() {
-  const { user, userProfile, signOut, loading } = useAuth();
+  const { user, userProfile, signOut, loading, sessionRestored } = useAuth();
   const [roomCode, setRoomCode] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState('');
@@ -19,10 +19,11 @@ export default function Home() {
 
   // Redirect to login if not authenticated
   useEffect(() => {
-    if (!loading && !user) {
+    // Only redirect after session restoration is complete and no user is found
+    if (sessionRestored && !loading && !user) {
       router.push('/login');
     }
-  }, [user, loading, router]);
+  }, [user, loading, sessionRestored, router]);
 
   /**
    * Create a new room
