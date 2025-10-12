@@ -239,7 +239,7 @@ export default function Friends() {
                   {searchLoading ? (
                     <div className="flex items-center justify-center py-4">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-500"></div>
-                      <span className="ml-2 text-gray-400">Searching for "{searchTerm}"...</span>
+                      <span className="ml-2 text-gray-400">Searching for &quot;{searchTerm}&quot;...</span>
                     </div>
                   ) : error ? (
                     <div className="bg-red-900/50 border border-red-600 rounded-lg p-3">
@@ -277,7 +277,7 @@ export default function Friends() {
                       ))}
                     </div>
                   ) : searchTerm.length >= 2 ? (
-                    <p className="text-gray-400 text-center py-4">No users found matching "{searchTerm}"</p>
+                    <p className="text-gray-400 text-center py-4">No users found matching &quot;{searchTerm}&quot;</p>
                   ) : (
                     <p className="text-gray-400 text-center py-2">Type at least 2 characters to search</p>
                   )}
