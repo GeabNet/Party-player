@@ -4,6 +4,7 @@ import Head from 'next/head';
 import { io } from 'socket.io-client';
 import ServerStatus from '../../components/ServerStatus';
 import VoiceChat from '../../components/ModernVoiceChat';
+import VideoChat from '../../components/VideoChat';
 import InviteFriends from '../../components/InviteFriends';
 import { useAuth } from '../../contexts/AuthContext';
 import { getAvatarUrl, getYouTubeApiUrl } from '../../utils/urls';
@@ -43,6 +44,8 @@ export default function Room() {
   const [isMobile, setIsMobile] = useState(false);
   const [showInviteFriends, setShowInviteFriends] = useState(false);
   const [showYouTubeSection, setShowYouTubeSection] = useState(false);
+  const [appsOpen, setAppsOpen] = useState(false);
+  const [showVideoChat, setShowVideoChat] = useState(false);
 
   /**
    * Redirect to login if not authenticated
@@ -692,90 +695,114 @@ export default function Room() {
         <div className="max-w-7xl mx-auto p-4">
           <div className="space-y-6">
             
-            {/* Apps Section */}
-            <div className="bg-gradient-to-r from-gray-800 via-gray-800 to-gray-700 rounded-xl p-6 border border-gray-600 shadow-lg">
-              <h3 className="font-bold text-xl mb-4 bg-gradient-to-r from-white to-purple-200 bg-clip-text text-transparent">
-                <i className="bi bi-grid-3x3-gap-fill mr-2" /> Apps & Activities
-              </h3>
-
-              {/* Desktop: grid, Mobile: horizontal scroll */}
-              <div className="hidden md:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {/* YouTube Watch Party App */}
+            {/* Apps Toggle: show only an icon when closed, full panel when open */}
+            {!appsOpen ? (
+              <div className="flex items-center">
                 <button
-                  onClick={() => setShowYouTubeSection(!showYouTubeSection)}
-                  className={`group relative overflow-hidden p-6 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
-                    showYouTubeSection 
-                      ? 'bg-gradient-to-r from-red-600 to-red-700 border-red-500 shadow-lg shadow-red-500/25' 
-                      : 'bg-gradient-to-r from-gray-700 to-gray-800 border-gray-600 hover:border-red-400 hover:shadow-lg hover:shadow-red-500/25'
-                  }`}>
-                  <div className="absolute inset-0 bg-white/10 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                  <div className="relative text-center">
-                    <div className="text-4xl mb-3">
-                      <i className="bi bi-youtube text-red-500 text-4xl" />
-                    </div>
-                    <h4 className="text-white font-bold text-lg mb-2">
-                      YouTube Frame
-                    </h4>
-                    <p className="text-gray-300 text-sm">
-                      {showYouTubeSection ? 'Hide YouTube Player' : 'Watch videos together'}
-                    </p>
-                    {currentVideo && (
-                      <div className="mt-2 px-2 py-1 bg-red-600/20 rounded-full">
-                        <span className="text-xs text-red-300">• Now Playing</span>
+                  onClick={() => setAppsOpen(true)}
+                  className="p-2 rounded-full bg-gray-800 border border-gray-700 text-gray-200 hover:bg-gray-700 focus-ring"
+                  aria-label="Open apps and activities"
+                >
+                  <i className="bi bi-grid-3x3-gap-fill text-xl" />
+                </button>
+              </div>
+            ) : (
+              <div className="relative bg-gradient-to-r from-gray-800 via-gray-800 to-gray-700 rounded-xl p-6 border border-gray-600 shadow-lg">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-xl bg-gradient-to-r from-white to-purple-200 bg-clip-text text-transparent">
+                    <i className="bi bi-grid-3x3-gap-fill mr-2" /> Apps & Activities
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setAppsOpen(false)}
+                      className="p-2 rounded-full bg-gray-800 border border-gray-700 text-gray-200 hover:bg-gray-700 focus-ring"
+                      aria-label="Close apps"
+                    >
+                      <i className="bi bi-x-lg" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Desktop: grid, Mobile: horizontal scroll */}
+                <div className="hidden md:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {/* YouTube Watch Party App */}
+                  <button
+                    onClick={() => setShowYouTubeSection(!showYouTubeSection)}
+                    className={`group relative overflow-hidden p-6 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
+                      showYouTubeSection 
+                        ? 'bg-gradient-to-r from-red-600 to-red-700 border-red-500 shadow-lg shadow-red-500/25' 
+                        : 'bg-gradient-to-r from-gray-700 to-gray-800 border-gray-600 hover:border-red-400 hover:shadow-lg hover:shadow-red-500/25'
+                    }`}>
+                    <div className="absolute inset-0 bg-white/10 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                    <div className="relative text-center">
+                      <div className="text-4xl mb-3">
+                        <i className="bi bi-youtube text-red-500 text-4xl" />
                       </div>
-                    )}
-                  </div>
-                </button>
-
-                {/* Future Apps - Placeholder */}
-                <div className="p-6 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50">
-                  <div className="text-4xl mb-3"><i className="bi bi-music-note-list" /></div>
-                  <h4 className="text-gray-400 font-bold text-lg mb-2">Music Player</h4>
-                  <p className="text-gray-500 text-sm">Coming Soon</p>
-                </div>
-
-                <div className="p-6 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50">
-                  <div className="text-4xl mb-3"><i className="bi bi-controller" /></div>
-                  <h4 className="text-gray-400 font-bold text-lg mb-2">Games</h4>
-                  <p className="text-gray-500 text-sm">Coming Soon</p>
-                </div>
-              </div>
-
-              {/* Mobile horizontal scroll */}
-              <div className="md:hidden apps-scroll-row">
-                <button
-                  onClick={() => setShowYouTubeSection(!showYouTubeSection)}
-                  className={`group relative overflow-hidden p-4 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 app-card-mobile ${
-                    showYouTubeSection 
-                      ? 'bg-gradient-to-r from-red-600 to-red-700 border-red-500 shadow-lg shadow-red-500/25' 
-                      : 'bg-gradient-to-r from-gray-700 to-gray-800 border-gray-600 hover:border-red-400 hover:shadow-lg hover:shadow-red-500/25'
-                  }`}>
-                  <div className="relative text-center">
-                    <div className="mb-2">
-                      <i className="bi bi-youtube text-red-500 text-3xl" />
+                      <h4 className="text-white font-bold text-lg mb-2">
+                        YouTube Frame
+                      </h4>
+                      <p className="text-gray-300 text-sm">
+                        {showYouTubeSection ? 'Hide YouTube Player' : 'Watch videos together'}
+                      </p>
+                      {currentVideo && (
+                        <div className="mt-2 px-2 py-1 bg-red-600/20 rounded-full">
+                          <span className="text-xs text-red-300">• Now Playing</span>
+                        </div>
+                      )}
                     </div>
-                    <h4 className="text-white font-bold text-sm mb-1">
-                      YouTube
-                    </h4>
-                    <p className="text-gray-300 text-xs">
-                      {showYouTubeSection ? 'Hide' : 'Watch'}
-                    </p>
-                  </div>
-                </button>
+                  </button>
 
-                <div className="p-4 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50 app-card-mobile">
-                  <div className="mb-2"><i className="bi bi-music-note-list text-3xl" /></div>
-                  <h4 className="text-gray-400 font-bold text-sm mb-1">Music</h4>
-                  <p className="text-gray-500 text-xs">Soon</p>
+                  {/* Video Chat App */}
+                  <div className="p-6 rounded-xl border-2 transition-all duration-200 hover:scale-105 cursor-pointer" onClick={() => setShowVideoChat(!showVideoChat)}>
+                    <div className="text-4xl mb-3"><i className="bi bi-camera-video" /></div>
+                    <h4 className="text-white font-bold text-lg mb-2">Video Chat</h4>
+                    <p className="text-gray-300 text-sm">Start a video call with room members</p>
+                  </div>
+
+                  {/* Future Apps - Placeholder */}
+                  <div className="p-6 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50">
+                    <div className="text-4xl mb-3"><i className="bi bi-music-note-list" /></div>
+                    <h4 className="text-gray-400 font-bold text-lg mb-2">Music Player</h4>
+                    <p className="text-gray-500 text-sm">Coming Soon</p>
+                  </div>
                 </div>
 
-                <div className="p-4 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50 app-card-mobile">
-                  <div className="mb-2"><i className="bi bi-controller text-3xl" /></div>
-                  <h4 className="text-gray-400 font-bold text-sm mb-1">Games</h4>
-                  <p className="text-gray-500 text-xs">Soon</p>
+                {/* Mobile horizontal scroll */}
+                <div className="md:hidden apps-scroll-row">
+                  <button
+                    onClick={() => setShowYouTubeSection(!showYouTubeSection)}
+                    className={`group relative overflow-hidden p-4 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 app-card-mobile ${
+                      showYouTubeSection 
+                        ? 'bg-gradient-to-r from-red-600 to-red-700 border-red-500 shadow-lg shadow-red-500/25' 
+                        : 'bg-gradient-to-r from-gray-700 to-gray-800 border-gray-600 hover:border-red-400 hover:shadow-lg hover:shadow-red-500/25'
+                    }`}>
+                    <div className="relative text-center">
+                      <div className="mb-2">
+                        <i className="bi bi-youtube text-red-500 text-3xl" />
+                      </div>
+                      <h4 className="text-white font-bold text-sm mb-1">
+                        YouTube
+                      </h4>
+                      <p className="text-gray-300 text-xs">
+                        {showYouTubeSection ? 'Hide' : 'Watch'}
+                      </p>
+                    </div>
+                  </button>
+
+                  <div className="p-4 rounded-xl border-2 transition-all duration-200 hover:scale-105 app-card-mobile cursor-pointer" onClick={() => setShowVideoChat(!showVideoChat)}>
+                    <div className="mb-2"><i className="bi bi-camera-video text-3xl" /></div>
+                    <h4 className="text-white font-bold text-sm mb-1">Video Chat</h4>
+                    <p className="text-gray-300 text-xs">Call</p>
+                  </div>
+
+                  <div className="p-4 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50 app-card-mobile">
+                    <div className="mb-2"><i className="bi bi-music-note-list text-3xl" /></div>
+                    <h4 className="text-gray-400 font-bold text-sm mb-1">Music</h4>
+                    <p className="text-gray-500 text-xs">Soon</p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* YouTube Section - Only show when button is clicked */}
             {showYouTubeSection && (
@@ -1174,6 +1201,17 @@ export default function Room() {
             }}
             isVisible={showInviteFriends}
             onClose={() => setShowInviteFriends(false)}
+          />
+        )}
+
+        {/* Video Chat Modal (uses same signaling channels as voice chat) */}
+        {showVideoChat && (
+          <VideoChat
+            socket={socket}
+            roomCode={code}
+            username={userProfile.display_name}
+            isVisible={showVideoChat}
+            onClose={() => setShowVideoChat(false)}
           />
         )}
 
