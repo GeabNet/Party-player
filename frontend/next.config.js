@@ -2,24 +2,10 @@
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
-  
-  // PWA Configuration
-  async headers() {
-    return [
-      {
-        source: '/sw.js',
-        headers: [
-          {
-            key: 'Cache-Control',
-            value: 'public, max-age=0, must-revalidate',
-          },
-          {
-            key: 'Service-Worker-Allowed',
-            value: '/',
-          },
-        ],
-      },
-    ];
+  output: 'export',
+  trailingSlash: true,
+  images: {
+    unoptimized: true
   },
 
   // Environment variables for client-side
