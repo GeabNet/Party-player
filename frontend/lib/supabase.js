@@ -282,6 +282,35 @@ export const db = {
         console.error('Avatar upload error:', error)
         return { error }
       }
+    },
+
+    // Update avatar URL directly
+    updateAvatarUrl: async (userId, avatarUrl) => {
+      try {
+        // Validate URL format
+        try {
+          new URL(avatarUrl)
+        } catch {
+          return { error: { message: 'Invalid URL format' } }
+        }
+
+        // Update user's avatar_url in database
+        const { data: updateData, error: updateError } = await supabase
+          .from('users')
+          .update({ avatar_url: avatarUrl })
+          .eq('id', userId)
+          .select()
+
+        if (updateError) {
+          console.error('Database update error:', updateError)
+          return { error: updateError }
+        }
+
+        return { data: { avatarUrl: avatarUrl, user: updateData[0] }, error: null }
+      } catch (error) {
+        console.error('Avatar URL update error:', error)
+        return { error }
+      }
     }
   },
 

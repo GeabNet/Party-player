@@ -444,6 +444,26 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
+  const updateAvatarUrl = async (url) => {
+    try {
+      if (!user?.id) return { error: { message: 'Not authenticated' } }
+
+      const result = await db.users.updateAvatarUrl(user.id, url)
+      if (result && !result.error) {
+        // Update the local user profile
+        setUserProfile(prev => ({
+          ...prev,
+          avatar_url: result.data.avatarUrl
+        }))
+        return { success: true, data: result.data }
+      }
+      return result
+    } catch (error) {
+      console.error('updateAvatarUrl error:', error)
+      return { error: { message: error.message || 'Failed to update avatar URL' } }
+    }
+  }
+
   const value = {
     user,
     userProfile,
@@ -457,6 +477,7 @@ export const AuthProvider = ({ children }) => {
     signOut,
     updateProfile,
     uploadAvatar,
+    updateAvatarUrl,
     sendFriendRequest,
     sendFriendRequestBySpecialId,
     acceptFriendRequest,
