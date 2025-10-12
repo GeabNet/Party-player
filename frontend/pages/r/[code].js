@@ -900,7 +900,7 @@ export default function Room() {
                       </div>
                     ) : (
                       <p className="text-red-300 text-sm">
-                        Load a video and click "Get Recommendations" to see AI-suggested videos
+                        Load a video and click &quot;Get Recommendations&quot; to see AI-suggested videos
                       </p>
                     )}
                   </div>
