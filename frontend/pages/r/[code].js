@@ -1052,7 +1052,7 @@ export default function Room() {
                                 {msg.message}
                               </div>
                               <div className={`text-xs mt-1 opacity-70 ${
-                                msg.username === username ? 'text-purple-100' : 'text-gray-300'
+                                msg.username === userProfile.display_name ? 'text-purple-100' : 'text-gray-300'
                               }`}>
                                 {new Date(msg.timestamp || Date.now()).toLocaleTimeString([], { 
                                   hour: '2-digit', 
