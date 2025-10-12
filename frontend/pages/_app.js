@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import Head from 'next/head';
 import '../styles/globals.css';
 import { AuthProvider } from '../contexts/AuthContext';
 import { SocketProvider } from '../contexts/SocketContext';
@@ -46,11 +47,16 @@ function MyApp({ Component, pageProps }) {
   }, []);
 
   return (
-    <AuthProvider>
-      <SocketProvider>
-        <Component {...pageProps} />
-      </SocketProvider>
-    </AuthProvider>
+    <>
+      <Head>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
+      </Head>
+      <AuthProvider>
+        <SocketProvider>
+          <Component {...pageProps} />
+        </SocketProvider>
+      </AuthProvider>
+    </>
   );
 }
 

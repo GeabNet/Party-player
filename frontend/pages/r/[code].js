@@ -695,9 +695,11 @@ export default function Room() {
             {/* Apps Section */}
             <div className="bg-gradient-to-r from-gray-800 via-gray-800 to-gray-700 rounded-xl p-6 border border-gray-600 shadow-lg">
               <h3 className="font-bold text-xl mb-4 bg-gradient-to-r from-white to-purple-200 bg-clip-text text-transparent">
-                🎮 Apps & Activities
+                <i className="bi bi-grid-3x3-gap-fill mr-2" /> Apps & Activities
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+              {/* Desktop: grid, Mobile: horizontal scroll */}
+              <div className="hidden md:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* YouTube Watch Party App */}
                 <button
                   onClick={() => setShowYouTubeSection(!showYouTubeSection)}
@@ -705,12 +707,11 @@ export default function Room() {
                     showYouTubeSection 
                       ? 'bg-gradient-to-r from-red-600 to-red-700 border-red-500 shadow-lg shadow-red-500/25' 
                       : 'bg-gradient-to-r from-gray-700 to-gray-800 border-gray-600 hover:border-red-400 hover:shadow-lg hover:shadow-red-500/25'
-                  }`}
-                >
+                  }`}>
                   <div className="absolute inset-0 bg-white/10 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
                   <div className="relative text-center">
                     <div className="text-4xl mb-3">
-                      📺
+                      <i className="bi bi-youtube text-red-500 text-4xl" />
                     </div>
                     <h4 className="text-white font-bold text-lg mb-2">
                       YouTube Frame
@@ -728,15 +729,50 @@ export default function Room() {
 
                 {/* Future Apps - Placeholder */}
                 <div className="p-6 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50">
-                  <div className="text-4xl mb-3">🎵</div>
+                  <div className="text-4xl mb-3"><i className="bi bi-music-note-list" /></div>
                   <h4 className="text-gray-400 font-bold text-lg mb-2">Music Player</h4>
                   <p className="text-gray-500 text-sm">Coming Soon</p>
                 </div>
 
                 <div className="p-6 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50">
-                  <div className="text-4xl mb-3">🎮</div>
+                  <div className="text-4xl mb-3"><i className="bi bi-controller" /></div>
                   <h4 className="text-gray-400 font-bold text-lg mb-2">Games</h4>
                   <p className="text-gray-500 text-sm">Coming Soon</p>
+                </div>
+              </div>
+
+              {/* Mobile horizontal scroll */}
+              <div className="md:hidden apps-scroll-row">
+                <button
+                  onClick={() => setShowYouTubeSection(!showYouTubeSection)}
+                  className={`group relative overflow-hidden p-4 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 app-card-mobile ${
+                    showYouTubeSection 
+                      ? 'bg-gradient-to-r from-red-600 to-red-700 border-red-500 shadow-lg shadow-red-500/25' 
+                      : 'bg-gradient-to-r from-gray-700 to-gray-800 border-gray-600 hover:border-red-400 hover:shadow-lg hover:shadow-red-500/25'
+                  }`}>
+                  <div className="relative text-center">
+                    <div className="mb-2">
+                      <i className="bi bi-youtube text-red-500 text-3xl" />
+                    </div>
+                    <h4 className="text-white font-bold text-sm mb-1">
+                      YouTube
+                    </h4>
+                    <p className="text-gray-300 text-xs">
+                      {showYouTubeSection ? 'Hide' : 'Watch'}
+                    </p>
+                  </div>
+                </button>
+
+                <div className="p-4 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50 app-card-mobile">
+                  <div className="mb-2"><i className="bi bi-music-note-list text-3xl" /></div>
+                  <h4 className="text-gray-400 font-bold text-sm mb-1">Music</h4>
+                  <p className="text-gray-500 text-xs">Soon</p>
+                </div>
+
+                <div className="p-4 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50 app-card-mobile">
+                  <div className="mb-2"><i className="bi bi-controller text-3xl" /></div>
+                  <h4 className="text-gray-400 font-bold text-sm mb-1">Games</h4>
+                  <p className="text-gray-500 text-xs">Soon</p>
                 </div>
               </div>
             </div>
