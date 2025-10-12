@@ -157,7 +157,7 @@ export default function VideoChat({ socket, roomCode, username, isVisible, onClo
         </div>
 
         <div className="space-y-4">
-          <p className="text-sm text-gray-300">This uses the server's existing peer signaling. For small groups, mesh calling works well. If you can't access camera or microphone, ensure your browser permissions are enabled.</p>
+          <p className="text-sm text-gray-300">This uses the server&apos;s existing peer signaling. For small groups, mesh calling works well. If you can&apos;t access camera or microphone, ensure your browser permissions are enabled.</p>
 
           <div className="flex gap-3">
             {!isActive ? (
