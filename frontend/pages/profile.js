@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext'
 
 export default function Profile() {
   const router = useRouter()
-  const { user, userProfile, loading, sessionRestored, uploadAvatar, updateProfile, signOut } = useAuth()
+  const { user, userProfile, loading, sessionRestored, uploadAvatar, updateAvatarUrl, updateProfile, signOut } = useAuth()
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [uploadSuccess, setUploadSuccess] = useState('')
@@ -14,6 +14,9 @@ export default function Profile() {
   const [profileError, setProfileError] = useState('')
   const [profileSuccess, setProfileSuccess] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [avatarUrl, setAvatarUrl] = useState('')
+  const [avatarMethod, setAvatarMethod] = useState('upload') // 'upload' or 'url'
+  const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false)
   const fileInputRef = useRef(null)
 
   // Initialize display name when userProfile loads
@@ -75,6 +78,31 @@ export default function Profile() {
       setUploadError('Failed to upload avatar')
     } finally {
       setIsUploading(false)
+    }
+  }
+
+  const handleAvatarUrlUpdate = async () => {
+    if (!avatarUrl.trim()) {
+      setUploadError('Please enter a valid URL')
+      return
+    }
+
+    setIsUpdatingAvatar(true)
+    setUploadError('')
+    setUploadSuccess('')
+
+    try {
+      const result = await updateAvatarUrl(avatarUrl.trim())
+      if (result.success) {
+        setUploadSuccess('Avatar updated successfully!')
+        setAvatarUrl('')
+      } else {
+        setUploadError(result.error?.message || 'Failed to update avatar')
+      }
+    } catch (error) {
+      setUploadError('Failed to update avatar')
+    } finally {
+      setIsUpdatingAvatar(false)
     }
   }
 
@@ -158,34 +186,97 @@ export default function Profile() {
                       alt={userProfile.display_name}
                       className="w-24 h-24 rounded-full border-4 border-purple-400 object-cover"
                     />
-                    {isUploading && (
+                    {(isUploading || isUpdatingAvatar) && (
                       <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center">
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
                       </div>
                     )}
                   </div>
 
+                  {/* Avatar Method Selection */}
                   <div className="w-full">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileSelect}
-                      disabled={isUploading}
-                      className="hidden"
-                      id="avatar-upload"
-                    />
-                    <label
-                      htmlFor="avatar-upload"
-                      className={`block w-full text-center py-2 px-4 rounded-lg border-2 border-dashed border-purple-400 text-purple-200 hover:border-purple-300 hover:text-purple-100 transition-colors cursor-pointer ${
-                        isUploading ? 'opacity-50 cursor-not-allowed' : ''
-                      }`}
-                    >
-                      {isUploading ? 'Uploading...' : 'Click to upload new avatar'}
-                    </label>
-                    <p className="text-sm text-purple-300 mt-2 text-center">
-                      Supported formats: JPG, PNG, GIF (max 5MB)
-                    </p>
+                    <div className="flex rounded-lg bg-white/10 p-1 mb-4">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAvatarMethod('upload')
+                          setUploadError('')
+                          setUploadSuccess('')
+                          setAvatarUrl('')
+                        }}
+                        className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                          avatarMethod === 'upload'
+                            ? 'bg-purple-600 text-white'
+                            : 'text-purple-200 hover:text-white'
+                        }`}
+                      >
+                        Upload File
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAvatarMethod('url')
+                          setUploadError('')
+                          setUploadSuccess('')
+                        }}
+                        className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                          avatarMethod === 'url'
+                            ? 'bg-purple-600 text-white'
+                            : 'text-purple-200 hover:text-white'
+                        }`}
+                      >
+                        Use URL
+                      </button>
+                    </div>
+
+                    {avatarMethod === 'upload' ? (
+                      <div>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/*"
+                          onChange={handleFileSelect}
+                          disabled={isUploading}
+                          className="hidden"
+                          id="avatar-upload"
+                        />
+                        <label
+                          htmlFor="avatar-upload"
+                          className={`block w-full text-center py-2 px-4 rounded-lg border-2 border-dashed border-purple-400 text-purple-200 hover:border-purple-300 hover:text-purple-100 transition-colors cursor-pointer ${
+                            isUploading ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
+                        >
+                          {isUploading ? 'Uploading...' : 'Click to upload new avatar'}
+                        </label>
+                        <p className="text-sm text-purple-300 mt-2 text-center">
+                          Supported formats: JPG, PNG, GIF (max 5MB)
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex space-x-2">
+                          <input
+                            type="url"
+                            value={avatarUrl}
+                            onChange={(e) => setAvatarUrl(e.target.value)}
+                            placeholder="https://i.imgur.com/example.jpg"
+                            className="flex-1 px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-400/50"
+                            disabled={isUpdatingAvatar}
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAvatarUrlUpdate}
+                            disabled={isUpdatingAvatar || !avatarUrl.trim()}
+                            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
+                          >
+                            {isUpdatingAvatar ? 'Updating...' : 'Update'}
+                          </button>
+                        </div>
+                        <p className="text-sm text-purple-300 text-center">
+                          Enter a direct link to an image. Try Imgur, Discord CDN, or any public image URL.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {uploadError && (

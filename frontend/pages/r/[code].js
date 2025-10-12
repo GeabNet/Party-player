@@ -42,6 +42,7 @@ export default function Room() {
   const [isVideoLoading, setIsVideoLoading] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showInviteFriends, setShowInviteFriends] = useState(false);
+  const [showYouTubeSection, setShowYouTubeSection] = useState(false);
 
   /**
    * Redirect to login if not authenticated
@@ -691,99 +692,158 @@ export default function Room() {
         <div className="max-w-7xl mx-auto p-4">
           <div className="space-y-6">
             
-            {/* Video Section */}
-            <div className="space-y-4">
-              
-              {/* Video Controls - Host Only */}
-              {isHost && (
-                <div className="bg-gray-800 rounded-lg p-4">
-                  <h3 className="text-lg font-semibold mb-3">Load Video (Host Controls)</h3>
-                  <div className="flex space-x-2">
-                    <input
-                      type="url"
-                      value={videoUrl}
-                      onChange={(e) => setVideoUrl(e.target.value)}
-                      onKeyPress={(e) => handleKeyPress(e, loadVideo)}
-                      placeholder="Paste YouTube URL here..."
-                      className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    />
-                    <button
-                      onClick={loadVideo}
-                      disabled={isVideoLoading}
-                      className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 px-4 py-2 rounded transition-colors"
-                    >
-                      {isVideoLoading ? 'Loading...' : 'Load'}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Video Player */}
-              <div className="bg-black rounded-lg overflow-hidden aspect-video">
-                {currentVideo ? (
-                  <div id="youtube-player" className="w-full h-full" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-500">
-                    <div className="text-center">
-                      <div className="text-6xl mb-4">🎬</div>
-                      <div className="text-xl mb-2">No video loaded</div>
-                      <div className="text-sm">
-                        {isHost ? 'Load a YouTube video to get started' : 'Waiting for the host to load a video...'}
+            {/* Apps Section */}
+            <div className="bg-gradient-to-r from-gray-800 via-gray-800 to-gray-700 rounded-xl p-6 border border-gray-600 shadow-lg">
+              <h3 className="font-bold text-xl mb-4 bg-gradient-to-r from-white to-purple-200 bg-clip-text text-transparent">
+                🎮 Apps & Activities
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {/* YouTube Watch Party App */}
+                <button
+                  onClick={() => setShowYouTubeSection(!showYouTubeSection)}
+                  className={`group relative overflow-hidden p-6 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
+                    showYouTubeSection 
+                      ? 'bg-gradient-to-r from-red-600 to-red-700 border-red-500 shadow-lg shadow-red-500/25' 
+                      : 'bg-gradient-to-r from-gray-700 to-gray-800 border-gray-600 hover:border-red-400 hover:shadow-lg hover:shadow-red-500/25'
+                  }`}
+                >
+                  <div className="absolute inset-0 bg-white/10 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                  <div className="relative text-center">
+                    <div className="text-4xl mb-3">
+                      📺
+                    </div>
+                    <h4 className="text-white font-bold text-lg mb-2">
+                      YouTube Frame
+                    </h4>
+                    <p className="text-gray-300 text-sm">
+                      {showYouTubeSection ? 'Hide YouTube Player' : 'Watch videos together'}
+                    </p>
+                    {currentVideo && (
+                      <div className="mt-2 px-2 py-1 bg-red-600/20 rounded-full">
+                        <span className="text-xs text-red-300">• Now Playing</span>
                       </div>
+                    )}
+                  </div>
+                </button>
+
+                {/* Future Apps - Placeholder */}
+                <div className="p-6 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50">
+                  <div className="text-4xl mb-3">🎵</div>
+                  <h4 className="text-gray-400 font-bold text-lg mb-2">Music Player</h4>
+                  <p className="text-gray-500 text-sm">Coming Soon</p>
+                </div>
+
+                <div className="p-6 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50">
+                  <div className="text-4xl mb-3">🎮</div>
+                  <h4 className="text-gray-400 font-bold text-lg mb-2">Games</h4>
+                  <p className="text-gray-500 text-sm">Coming Soon</p>
+                </div>
+              </div>
+            </div>
+
+            {/* YouTube Section - Only show when button is clicked */}
+            {showYouTubeSection && (
+              <div className="space-y-4 animate-fadeIn">
+                
+                {/* Video Controls - Host Only */}
+                {isHost && (
+                  <div className="bg-gradient-to-r from-red-900/50 to-red-800/50 backdrop-blur-sm rounded-lg p-4 border border-red-600/30">
+                    <div className="flex items-center space-x-3 mb-3">
+                      <div className="p-2 rounded-lg bg-red-600">
+                        <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                        </svg>
+                      </div>
+                      <h3 className="text-lg font-semibold text-white">YouTube Player Controls</h3>
+                      <span className="bg-red-600 text-white text-xs px-2 py-1 rounded">HOST ONLY</span>
+                    </div>
+                    <div className="flex space-x-2">
+                      <input
+                        type="url"
+                        value={videoUrl}
+                        onChange={(e) => setVideoUrl(e.target.value)}
+                        onKeyPress={(e) => handleKeyPress(e, loadVideo)}
+                        placeholder="Paste YouTube URL here..."
+                        className="flex-1 px-3 py-2 bg-black/30 border border-red-500/30 rounded focus:ring-2 focus:ring-red-500 focus:border-transparent text-white placeholder-red-200"
+                      />
+                      <button
+                        onClick={loadVideo}
+                        disabled={isVideoLoading}
+                        className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 px-4 py-2 rounded transition-colors text-white font-medium"
+                      >
+                        {isVideoLoading ? 'Loading...' : 'Load Video'}
+                      </button>
                     </div>
                   </div>
                 )}
-              </div>
 
-              {/* Current Video Info */}
-              {currentVideo && (
-                <div className="bg-gray-800 rounded-lg p-4">
-                  <h3 className="font-semibold mb-1">Now Playing:</h3>
-                  <p className="text-gray-300">{currentVideo.title}</p>
-                  {!isHost && (
-                    <p className="text-sm text-gray-500 mt-2">
-                      Video controls are managed by the host
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Recommendations */}
-              {isHost && (
-                <div className="bg-gray-800 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-semibold">AI Recommendations</h3>
-                    <button
-                      onClick={getRecommendations}
-                      disabled={!currentVideo}
-                      className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 px-3 py-1 text-sm rounded transition-colors"
-                    >
-                      Get Recommendations
-                    </button>
-                  </div>
-                  
-                  {recommendations.length > 0 ? (
-                    <div className="space-y-2">
-                      {recommendations.map((rec) => (
-                        <div key={rec.videoId} className="flex items-center justify-between bg-gray-700 p-2 rounded">
-                          <div className="flex-1 text-sm">{rec.title}</div>
-                          <button
-                            onClick={() => loadRecommendedVideo(rec.videoId)}
-                            className="bg-purple-600 hover:bg-purple-700 px-2 py-1 text-xs rounded ml-2 transition-colors"
-                          >
-                            Load
-                          </button>
-                        </div>
-                      ))}
-                    </div>
+                {/* Video Player */}
+                <div className="bg-black rounded-lg overflow-hidden aspect-video border-2 border-red-600/30">
+                  {currentVideo ? (
+                    <div id="youtube-player" className="w-full h-full" />
                   ) : (
-                    <p className="text-gray-500 text-sm">
-                      Load a video and click &quot;Get Recommendations&quot; to see AI-suggested videos
-                    </p>
+                    <div className="w-full h-full flex items-center justify-center text-gray-500">
+                      <div className="text-center">
+                        <div className="text-6xl mb-4">🎬</div>
+                        <div className="text-xl mb-2 text-white">No video loaded</div>
+                        <div className="text-sm text-gray-300">
+                          {isHost ? 'Load a YouTube video to get started' : 'Waiting for the host to load a video...'}
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
+
+                {/* Current Video Info */}
+                {currentVideo && (
+                  <div className="bg-gradient-to-r from-red-900/50 to-red-800/50 backdrop-blur-sm rounded-lg p-4 border border-red-600/30">
+                    <h3 className="font-semibold mb-1 text-white">Now Playing:</h3>
+                    <p className="text-red-200">{currentVideo.title}</p>
+                    {!isHost && (
+                      <p className="text-sm text-red-300 mt-2">
+                        Video controls are managed by the host
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Recommendations */}
+                {isHost && (
+                  <div className="bg-gradient-to-r from-red-900/50 to-red-800/50 backdrop-blur-sm rounded-lg p-4 border border-red-600/30">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-white">AI Recommendations</h3>
+                      <button
+                        onClick={getRecommendations}
+                        disabled={!currentVideo}
+                        className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 px-3 py-1 text-sm rounded transition-colors text-white"
+                      >
+                        Get Recommendations
+                      </button>
+                    </div>
+                    
+                    {recommendations.length > 0 ? (
+                      <div className="space-y-2">
+                        {recommendations.map((rec) => (
+                          <div key={rec.videoId} className="flex items-center justify-between bg-black/30 p-2 rounded border border-red-600/20">
+                            <div className="flex-1 text-sm text-white">{rec.title}</div>
+                            <button
+                              onClick={() => loadRecommendedVideo(rec.videoId)}
+                              className="bg-red-600 hover:bg-red-700 px-2 py-1 text-xs rounded ml-2 transition-colors text-white"
+                            >
+                              Load
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-red-300 text-sm">
+                        Load a video and click "Get Recommendations" to see AI-suggested videos
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Users Section - Now below video */}
             <div className="w-full">
