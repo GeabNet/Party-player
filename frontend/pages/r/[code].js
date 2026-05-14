@@ -6,6 +6,7 @@ import ServerStatus from '../../components/ServerStatus';
 import VoiceChat from '../../components/ModernVoiceChat';
 import VideoChat from '../../components/VideoChat';
 import InviteFriends from '../../components/InviteFriends';
+import Canvas from '../../components/Canvas';
 import { useAuth } from '../../contexts/AuthContext';
 import { getAvatarUrl, getYouTubeApiUrl } from '../../utils/urls';
 
@@ -44,8 +45,11 @@ export default function Room() {
   const [isMobile, setIsMobile] = useState(false);
   const [showInviteFriends, setShowInviteFriends] = useState(false);
   const [showYouTubeSection, setShowYouTubeSection] = useState(false);
-  const [appsOpen, setAppsOpen] = useState(false);
+  const [showHamburgerMenu, setShowHamburgerMenu] = useState(false);
+  const [hamburgerTab, setHamburgerTab] = useState('apps'); // 'apps' or 'chat'
   const [showVideoChat, setShowVideoChat] = useState(false);
+  const [showChat, setShowChat] = useState(false);
+  const [showCanvas, setShowCanvas] = useState(false);
 
   /**
    * Redirect to login if not authenticated
@@ -56,9 +60,137 @@ export default function Room() {
     }
   }, [user, loading, sessionRestored, router]);
 
-  // Voice chat state
+  // Voice chat state (extracted from VoiceChat component)
+  const [isVoiceChatEnabled, setIsVoiceChatEnabled] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isDeafened, setIsDeafened] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [voiceUsers, setVoiceUsers] = useState([]);
   const [mutedUsers, setMutedUsers] = useState([]);
+  const localStreamRef = useRef(null);
+  const peersRef = useRef({});
+  const audioElementsRef = useRef({});
+
+  // Voice chat functions (simplified versions)
+  const initializeVoiceChat = async () => {
+    try {
+      setIsConnecting(true);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false
+      });
+      localStreamRef.current = stream;
+      stream.getAudioTracks().forEach(track => track.enabled = !isMuted);
+      socket.emit('join-voice-chat', { roomCode: code, username: userProfile.display_name });
+      setIsVoiceChatEnabled(true);
+      setIsConnecting(false);
+    } catch (error) {
+      console.error('Error accessing microphone:', error);
+      setIsConnecting(false);
+      alert('Could not access microphone. Please check your permissions and try again.');
+    }
+  };
+
+  const leaveVoiceChat = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
+    }
+    Object.values(peersRef.current).forEach(peer => peer.destroy());
+    peersRef.current = {};
+    Object.values(audioElementsRef.current).forEach(audio => {
+      audio.pause();
+      audio.srcObject = null;
+    });
+    audioElementsRef.current = {};
+    socket.emit('leave-voice-chat', { roomCode: code });
+    setIsVoiceChatEnabled(false);
+  };
+
+  const toggleMute = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach(track => {
+        track.enabled = isMuted;
+      });
+      setIsMuted(!isMuted);
+      socket.emit(isMuted ? 'user-unmuted' : 'user-muted', { roomCode: code });
+    }
+  };
+
+  const toggleDeafen = () => {
+    setIsDeafened(!isDeafened);
+    Object.values(audioElementsRef.current).forEach(audio => {
+      audio.muted = !isDeafened;
+    });
+  };
+
+  // Voice chat peer functions
+  const createPeer = (userToCall, callerID, stream) => {
+    const Peer = require('simple-peer');
+    const peer = new Peer({
+      initiator: true,
+      trickle: false,
+      stream,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ]
+      }
+    });
+
+    peer.on('signal', signal => {
+      socket.emit('sending-signal', { userToCall, callerID, signal });
+    });
+
+    peer.on('stream', remoteStream => {
+      const audio = new Audio();
+      audio.srcObject = remoteStream;
+      audio.autoplay = true;
+      audio.playsInline = true;
+      audio.muted = isDeafened;
+      audio.volume = 1.0;
+      audio.style.display = 'none';
+      document.body.appendChild(audio);
+      audioElementsRef.current[userToCall] = audio;
+    });
+
+    return peer;
+  };
+
+  const addPeer = (incomingSignal, callerID, stream) => {
+    const Peer = require('simple-peer');
+    const peer = new Peer({
+      initiator: false,
+      trickle: false,
+      stream,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ]
+      }
+    });
+
+    peer.on('signal', signal => {
+      socket.emit('returning-signal', { signal, callerID });
+    });
+
+    peer.on('stream', remoteStream => {
+      const audio = new Audio();
+      audio.srcObject = remoteStream;
+      audio.autoplay = true;
+      audio.playsInline = true;
+      audio.muted = isDeafened;
+      audio.volume = 1.0;
+      audio.style.display = 'none';
+      document.body.appendChild(audio);
+      audioElementsRef.current[callerID] = audio;
+    });
+
+    peer.signal(incomingSignal);
+    return peer;
+  };
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState({ show: false, x: 0, y: 0, targetUser: null });
@@ -363,6 +495,24 @@ export default function Room() {
     socketInstance.on('user-joined-voice', (data) => {
       console.log('User joined voice:', data);
       setVoiceUsers(prev => [...new Set([...prev, data.callerID])]);
+      if (localStreamRef.current && data.callerID !== socketInstance.id) {
+        const peer = createPeer(data.callerID, socketInstance.id, localStreamRef.current);
+        peersRef.current[data.callerID] = peer;
+      }
+    });
+
+    socketInstance.on('user-left-voice', (data) => {
+      console.log('User left voice:', data);
+      setVoiceUsers(prev => prev.filter(id => id !== data.callerID));
+      if (peersRef.current[data.callerID]) {
+        peersRef.current[data.callerID].destroy();
+        delete peersRef.current[data.callerID];
+      }
+      if (audioElementsRef.current[data.callerID]) {
+        audioElementsRef.current[data.callerID].pause();
+        audioElementsRef.current[data.callerID].srcObject = null;
+        delete audioElementsRef.current[data.callerID];
+      }
     });
 
     socketInstance.on('user-left-voice', (data) => {
@@ -371,23 +521,19 @@ export default function Room() {
       setMutedUsers(prev => prev.filter(id => id !== data.callerID));
     });
 
-    // Mute status events
-    socketInstance.on('user-muted', (data) => {
-      console.log('User muted received:', data);
-      setMutedUsers(prev => {
-        const newMutedUsers = [...new Set([...prev, data.userId])];
-        console.log('Updated muted users:', newMutedUsers);
-        return newMutedUsers;
-      });
+    // Voice chat peer signaling
+    socketInstance.on('receiving-signal', (payload) => {
+      if (localStreamRef.current) {
+        const peer = addPeer(payload.signal, payload.callerID, localStreamRef.current);
+        peersRef.current[payload.callerID] = peer;
+      }
     });
 
-    socketInstance.on('user-unmuted', (data) => {
-      console.log('User unmuted received:', data);
-      setMutedUsers(prev => {
-        const newMutedUsers = prev.filter(id => id !== data.userId);
-        console.log('Updated muted users:', newMutedUsers);
-        return newMutedUsers;
-      });
+    socketInstance.on('receiving-returned-signal', (payload) => {
+      const item = peersRef.current[payload.id];
+      if (item) {
+        item.signal(payload.signal);
+      }
     });
 
     return () => {
@@ -667,6 +813,13 @@ export default function Room() {
                 {users.length} user{users.length !== 1 ? 's' : ''} online
               </div>
               <button
+                onClick={() => setShowHamburgerMenu(!showHamburgerMenu)}
+                className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"
+                aria-label="Open apps menu"
+              >
+                <i className="bi bi-list text-xl" />
+              </button>
+              <button
                 onClick={copyRoomCode}
                 data-copy-button
                 className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm transition-colors"
@@ -692,117 +845,8 @@ export default function Room() {
         )}
 
         {/* Main Content */}
-        <div className="max-w-7xl mx-auto p-4">
+        <div className="max-w-7xl mx-auto p-4 pb-24">
           <div className="space-y-6">
-            
-            {/* Apps Toggle: show only an icon when closed, full panel when open */}
-            {!appsOpen ? (
-              <div className="flex items-center">
-                <button
-                  onClick={() => setAppsOpen(true)}
-                  className="p-2 rounded-full bg-gray-800 border border-gray-700 text-gray-200 hover:bg-gray-700 focus-ring"
-                  aria-label="Open apps and activities"
-                >
-                  <i className="bi bi-grid-3x3-gap-fill text-xl" />
-                </button>
-              </div>
-            ) : (
-              <div className="relative bg-gradient-to-r from-gray-800 via-gray-800 to-gray-700 rounded-xl p-6 border border-gray-600 shadow-lg">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-bold text-xl bg-gradient-to-r from-white to-purple-200 bg-clip-text text-transparent">
-                    <i className="bi bi-grid-3x3-gap-fill mr-2" /> Apps & Activities
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setAppsOpen(false)}
-                      className="p-2 rounded-full bg-gray-800 border border-gray-700 text-gray-200 hover:bg-gray-700 focus-ring"
-                      aria-label="Close apps"
-                    >
-                      <i className="bi bi-x-lg" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Desktop: grid, Mobile: horizontal scroll */}
-                <div className="hidden md:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {/* YouTube Watch Party App */}
-                  <button
-                    onClick={() => setShowYouTubeSection(!showYouTubeSection)}
-                    className={`group relative overflow-hidden p-6 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
-                      showYouTubeSection 
-                        ? 'bg-gradient-to-r from-red-600 to-red-700 border-red-500 shadow-lg shadow-red-500/25' 
-                        : 'bg-gradient-to-r from-gray-700 to-gray-800 border-gray-600 hover:border-red-400 hover:shadow-lg hover:shadow-red-500/25'
-                    }`}>
-                    <div className="absolute inset-0 bg-white/10 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                    <div className="relative text-center">
-                      <div className="text-4xl mb-3">
-                        <i className="bi bi-youtube text-red-500 text-4xl" />
-                      </div>
-                      <h4 className="text-white font-bold text-lg mb-2">
-                        YouTube Frame
-                      </h4>
-                      <p className="text-gray-300 text-sm">
-                        {showYouTubeSection ? 'Hide YouTube Player' : 'Watch videos together'}
-                      </p>
-                      {currentVideo && (
-                        <div className="mt-2 px-2 py-1 bg-red-600/20 rounded-full">
-                          <span className="text-xs text-red-300">• Now Playing</span>
-                        </div>
-                      )}
-                    </div>
-                  </button>
-
-                  {/* Video Chat App */}
-                  <div className="p-6 rounded-xl border-2 transition-all duration-200 hover:scale-105 cursor-pointer" onClick={() => setShowVideoChat(!showVideoChat)}>
-                    <div className="text-4xl mb-3"><i className="bi bi-camera-video" /></div>
-                    <h4 className="text-white font-bold text-lg mb-2">Video Chat</h4>
-                    <p className="text-gray-300 text-sm">Start a video call with room members</p>
-                  </div>
-
-                  {/* Future Apps - Placeholder */}
-                  <div className="p-6 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50">
-                    <div className="text-4xl mb-3"><i className="bi bi-music-note-list" /></div>
-                    <h4 className="text-gray-400 font-bold text-lg mb-2">Music Player</h4>
-                    <p className="text-gray-500 text-sm">Coming Soon</p>
-                  </div>
-                </div>
-
-                {/* Mobile horizontal scroll */}
-                <div className="md:hidden apps-scroll-row">
-                  <button
-                    onClick={() => setShowYouTubeSection(!showYouTubeSection)}
-                    className={`group relative overflow-hidden p-4 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 app-card-mobile ${
-                      showYouTubeSection 
-                        ? 'bg-gradient-to-r from-red-600 to-red-700 border-red-500 shadow-lg shadow-red-500/25' 
-                        : 'bg-gradient-to-r from-gray-700 to-gray-800 border-gray-600 hover:border-red-400 hover:shadow-lg hover:shadow-red-500/25'
-                    }`}>
-                    <div className="relative text-center">
-                      <div className="mb-2">
-                        <i className="bi bi-youtube text-red-500 text-3xl" />
-                      </div>
-                      <h4 className="text-white font-bold text-sm mb-1">
-                        YouTube
-                      </h4>
-                      <p className="text-gray-300 text-xs">
-                        {showYouTubeSection ? 'Hide' : 'Watch'}
-                      </p>
-                    </div>
-                  </button>
-
-                  <div className="p-4 rounded-xl border-2 transition-all duration-200 hover:scale-105 app-card-mobile cursor-pointer" onClick={() => setShowVideoChat(!showVideoChat)}>
-                    <div className="mb-2"><i className="bi bi-camera-video text-3xl" /></div>
-                    <h4 className="text-white font-bold text-sm mb-1">Video Chat</h4>
-                    <p className="text-gray-300 text-xs">Call</p>
-                  </div>
-
-                  <div className="p-4 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50 app-card-mobile">
-                    <div className="mb-2"><i className="bi bi-music-note-list text-3xl" /></div>
-                    <h4 className="text-gray-400 font-bold text-sm mb-1">Music</h4>
-                    <p className="text-gray-500 text-xs">Soon</p>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* YouTube Section - Only show when button is clicked */}
             {showYouTubeSection && (
@@ -1042,154 +1086,513 @@ export default function Room() {
                 </div>
               </div>
             </div>
-
-            {/* Bottom Section: Voice Chat and Chat */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              
-              {/* Voice Chat */}
-              <div>
-                <VoiceChat 
-                  socket={socket}
-                  roomCode={code}
-                  username={userProfile.display_name}
-                  users={users}
-                  isHost={isHost}
-                />
-              </div>
-
-              {/* Modern Chat */}
-              <div className="bg-gradient-to-br from-indigo-900/90 via-purple-900/90 to-pink-900/90 backdrop-blur-sm rounded-2xl border border-white/10 shadow-2xl overflow-hidden">
-                {/* Chat Header */}
-                <div className="bg-gradient-to-r from-purple-600/30 to-pink-600/30 backdrop-blur-sm p-4 border-b border-white/10">
-                  <div className="flex items-center space-x-3">
-                    <div className="p-2 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 shadow-lg">
-                      <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h3 className="text-white font-bold text-lg bg-gradient-to-r from-white to-purple-200 bg-clip-text text-transparent">
-                        Chat
-                      </h3>
-                      <p className="text-purple-200 text-sm">
-                        {messages.length} message{messages.length !== 1 ? 's' : ''}
-                      </p>
-                    </div>
-                  </div>
+          </div>
+        </div>
+        
+        {/* Bottom Navigation */}
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-gray-800/95 backdrop-blur-sm border-t border-gray-700 p-4">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex items-center justify-between">
+              {/* Chat Button */}
+              <button
+                onClick={() => setShowChat(!showChat)}
+                className={`group relative overflow-hidden px-4 py-3 rounded-xl font-medium text-white transition-all duration-300 transform hover:scale-105 ${
+                  showChat
+                    ? 'bg-gradient-to-r from-purple-500 to-pink-500 shadow-lg shadow-purple-500/25'
+                    : 'bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-500 hover:to-gray-600 shadow-lg hover:shadow-gray-500/25'
+                }`}
+              >
+                <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                <div className="relative flex items-center space-x-2">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-sm">Chat</span>
                 </div>
+              </button>
 
-                {/* Messages Container */}
-                <div className="flex flex-col h-80">
-                  {/* Messages */}
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-purple-500 scrollbar-track-transparent">
-                    {messages.length > 0 ? (
-                      messages.map((msg, index) => (
-                        <div key={msg.id} className="group">
-                          <div className={`flex items-start space-x-3 ${msg.username === userProfile.display_name ? 'justify-end' : 'justify-start'}`}>
-                            {/* Avatar for other users (left side) */}
-                            {msg.username !== userProfile.display_name && (
-                              <div className="flex-shrink-0">
-                                <img
-                                  src={msg.avatar || getAvatarUrl(msg.username.charAt(0).toUpperCase())}
-                                  alt={msg.username}
-                                  className="w-8 h-8 rounded-full border-2 border-purple-400 shadow-sm object-cover"
-                                  onError={(e) => {
-                                    e.target.src = getAvatarUrl(msg.username.charAt(0).toUpperCase());
-                                  }}
-                                />
-                              </div>
-                            )}
-                            
-                            {/* Message bubble */}
-                            <div className={`max-w-xs lg:max-w-sm px-4 py-3 rounded-2xl shadow-lg backdrop-blur-sm border transition-all duration-300 group-hover:shadow-xl ${
-                              msg.username === userProfile.display_name
-                                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white border-purple-500/20 shadow-purple-500/20'
-                                : 'bg-white/10 text-white border-white/20 shadow-white/10'
-                            }`}>
-                              {msg.username !== userProfile.display_name && (
-                                <div className="text-xs font-medium text-purple-300 mb-1">
-                                  {msg.username}
-                                </div>
-                              )}
-                              <div className="text-sm leading-relaxed break-words">
-                                {msg.message}
-                              </div>
-                              <div className={`text-xs mt-1 opacity-70 ${
-                                msg.username === userProfile.display_name ? 'text-purple-100' : 'text-gray-300'
-                              }`}>
-                                {new Date(msg.timestamp || Date.now()).toLocaleTimeString([], { 
-                                  hour: '2-digit', 
-                                  minute: '2-digit' 
-                                })}
-                              </div>
-                            </div>
+              {/* Voice Chat Controls */}
+              {!isVoiceChatEnabled ? (
+                <div className="flex-1 flex justify-center">
+                  <button
+                    onClick={initializeVoiceChat}
+                    disabled={isConnecting}
+                    className={`group relative overflow-hidden px-6 py-3 rounded-xl font-medium text-white transition-all duration-300 transform hover:scale-105 ${
+                      isConnecting
+                        ? 'bg-gradient-to-r from-gray-600 to-gray-700 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 shadow-lg hover:shadow-green-500/25'
+                    }`}
+                  >
+                    <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+                    <div className="relative flex items-center space-x-3">
+                      {isConnecting ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                          <span>Connecting...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 715 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                          </svg>
+                          <span>Join Voice Chat</span>
+                        </>
+                      )}
+                    </div>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex-1 flex justify-center">
+                  <div className="flex items-center justify-center space-x-4">
+                    {/* Mute/Unmute button */}
+                    <button
+                      onClick={toggleMute}
+                      className={`group relative overflow-hidden px-4 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105 ${
+                        isMuted
+                          ? 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 shadow-lg hover:shadow-red-500/25'
+                          : 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 shadow-lg hover:shadow-blue-500/25'
+                      }`}
+                    >
+                      <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                      <div className="relative flex items-center space-x-2">
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                          {isMuted ? (
+                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 715 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-14-14z" clipRule="evenodd" />
+                          ) : (
+                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 715 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                          )}
+                        </svg>
+                        <span className="text-sm">{isMuted ? 'Unmute' : 'Mute'}</span>
+                      </div>
+                    </button>
 
-                            {/* Avatar for current user (right side) */}
-                            {msg.username === userProfile.display_name && (
-                              <div className="flex-shrink-0">
-                                <img
-                                  src={msg.avatar || userProfile.avatar_url}
-                                  alt={userProfile.display_name}
-                                  className="w-8 h-8 rounded-full border-2 border-purple-400 shadow-sm object-cover"
-                                  onError={(e) => {
-                                    e.target.src = userProfile.avatar_url;
-                                  }}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-center py-8">
-                        <div className="text-6xl mb-4 opacity-50">💬</div>
-                        <div className="text-purple-200 text-sm">
-                          No messages yet
-                        </div>
-                        <div className="text-purple-300 text-xs mt-1">
-                          Start the conversation!
+                    {/* Deafen/Undeafen button */}
+                    <button
+                      onClick={toggleDeafen}
+                      className={`group relative overflow-hidden px-4 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105 ${
+                        isDeafened
+                          ? 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-400 hover:to-red-400 shadow-lg hover:shadow-orange-500/25'
+                          : 'bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 shadow-lg hover:shadow-yellow-500/25'
+                      }`}
+                    >
+                      <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                      <div className="relative flex items-center space-x-2">
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.617.816L4.414 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.414l3.969-3.816a1 1 0 011.616.816z" clipRule="evenodd" />
+                          {isDeafened && <path fillRule="evenodd" d="M12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />}
+                        </svg>
+                        <span className="text-sm">{isDeafened ? 'Undeafen' : 'Deafen'}</span>
+                      </div>
+                    </button>
+
+                    {/* Leave Voice Chat button */}
+                    <button
+                      onClick={leaveVoiceChat}
+                      className="group relative overflow-hidden px-4 py-3 rounded-xl font-medium text-white transition-all duration-300 transform hover:scale-105 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 shadow-lg hover:shadow-red-500/25"
+                    >
+                      <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                      <div className="relative flex items-center space-x-2">
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                        </svg>
+                        <span className="text-sm">Leave</span>
+                      </div>
+                    </button>
+
+                    {/* Voice users count */}
+                    {voiceUsers.length > 0 && (
+                      <div className="bg-white/10 backdrop-blur-sm rounded-full px-3 py-2 border border-white/20">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
+                          <span className="text-white font-medium text-sm">
+                            {voiceUsers.length} in voice
+                          </span>
                         </div>
                       </div>
                     )}
-                    <div ref={messagesEndRef} />
-                  </div>
-
-                  {/* Message Input */}
-                  <div className="p-4 border-t border-white/10 bg-black/20">
-                    <div className="flex space-x-3">
-                      <div className="flex-1 relative">
-                        <input
-                          type="text"
-                          value={newMessage}
-                          onChange={(e) => setNewMessage(e.target.value)}
-                          onKeyPress={(e) => handleKeyPress(e, sendMessage)}
-                          placeholder="Type your message..."
-                          maxLength={200}
-                          className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-purple-200 text-sm transition-all duration-300 hover:bg-white/15"
-                        />
-                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-xs text-purple-300">
-                          {newMessage.length}/200
-                        </div>
-                      </div>
-                      <button
-                        onClick={sendMessage}
-                        disabled={!newMessage.trim()}
-                        className="group relative overflow-hidden bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 disabled:from-gray-600 disabled:to-gray-700 px-4 py-3 rounded-xl font-medium text-white transition-all duration-300 transform hover:scale-105 disabled:hover:scale-100 shadow-lg hover:shadow-purple-500/25"
-                      >
-                        <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                        <div className="relative">
-                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-                          </svg>
-                        </div>
-                      </button>
-                    </div>
                   </div>
                 </div>
-              </div>
+              )}
+
+              {/* Spacer for balance */}
+              <div className="w-20"></div>
             </div>
           </div>
         </div>
+        
+        {/* Hamburger Menu Overlay */}
+        {showHamburgerMenu && (
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-start justify-end p-4">
+            <div className="bg-gray-800 rounded-xl p-6 w-full max-w-sm shadow-2xl border border-gray-700 max-h-[80vh] overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex space-x-1">
+                  <button
+                    onClick={() => setHamburgerTab('apps')}
+                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+                      hamburgerTab === 'apps' 
+                        ? 'bg-purple-600 text-white' 
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    <i className="bi bi-grid-3x3-gap mr-1" /> Apps
+                  </button>
+                  <button
+                    onClick={() => setHamburgerTab('chat')}
+                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+                      hamburgerTab === 'chat' 
+                        ? 'bg-purple-600 text-white' 
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    <i className="bi bi-chat-dots mr-1" /> Chat
+                  </button>
+                </div>
+                <button
+                  onClick={() => setShowHamburgerMenu(false)}
+                  className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"
+                  aria-label="Close menu"
+                >
+                  <i className="bi bi-x-lg" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-hidden">
+                {hamburgerTab === 'apps' && (
+                  <div className="space-y-4">
+                    {/* YouTube Watch Party App */}
+                    <button
+                      onClick={() => {
+                        setShowYouTubeSection(!showYouTubeSection);
+                        setShowHamburgerMenu(false);
+                      }}
+                      className={`w-full group relative overflow-hidden p-4 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
+                        showYouTubeSection 
+                          ? 'bg-gradient-to-r from-red-600 to-red-700 border-red-500 shadow-lg shadow-red-500/25' 
+                          : 'bg-gradient-to-r from-gray-700 to-gray-800 border-gray-600 hover:border-red-400 hover:shadow-lg hover:shadow-red-500/25'
+                      }`}>
+                      <div className="absolute inset-0 bg-white/10 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                      <div className="relative flex items-center space-x-3">
+                        <div className="text-3xl">
+                          <i className="bi bi-youtube text-red-500" />
+                        </div>
+                        <div className="text-left">
+                          <h4 className="text-white font-bold text-lg mb-1">
+                            YouTube Frame
+                          </h4>
+                          <p className="text-gray-300 text-sm">
+                            {showYouTubeSection ? 'Hide YouTube Player' : 'Watch videos together'}
+                          </p>
+                          {currentVideo && (
+                            <div className="mt-1 px-2 py-1 bg-red-600/20 rounded-full inline-block">
+                              <span className="text-xs text-red-300">• Now Playing</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+
+                    {/* Video Chat App */}
+                    <button
+                      onClick={() => {
+                        setShowVideoChat(!showVideoChat);
+                        setShowHamburgerMenu(false);
+                      }}
+                      className="w-full p-4 rounded-xl border-2 border-gray-600 hover:border-purple-400 transition-all duration-200 hover:scale-105 bg-gradient-to-r from-gray-700 to-gray-800"
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className="text-3xl">
+                          <i className="bi bi-camera-video" />
+                        </div>
+                        <div className="text-left">
+                          <h4 className="text-white font-bold text-lg mb-1">Video Chat</h4>
+                          <p className="text-gray-300 text-sm">Start a video call with room members</p>
+                        </div>
+                      </div>
+                    </button>
+
+                    {/* Canvas App */}
+                    <button
+                      onClick={() => {
+                        setShowCanvas(!showCanvas);
+                        setShowHamburgerMenu(false);
+                      }}
+                      className={`w-full group relative overflow-hidden p-4 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
+                        showCanvas
+                          ? 'bg-gradient-to-r from-blue-600 to-cyan-600 border-blue-500 shadow-lg shadow-blue-500/25'
+                          : 'bg-gradient-to-r from-gray-700 to-gray-800 border-gray-600 hover:border-blue-400 hover:shadow-lg hover:shadow-blue-500/25'
+                      }`}>
+                      <div className="absolute inset-0 bg-white/10 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                      <div className="relative flex items-center space-x-3">
+                        <div className="text-3xl">
+                          <i className="bi bi-palette text-blue-400" />
+                        </div>
+                        <div className="text-left">
+                          <h4 className="text-white font-bold text-lg mb-1">
+                            Collaborative Canvas
+                          </h4>
+                          <p className="text-gray-300 text-sm">
+                            {showCanvas ? 'Hide Canvas' : 'Draw together (Host controlled)'}
+                          </p>
+                          {isHost && (
+                            <div className="mt-1 px-2 py-1 bg-blue-600/20 rounded-full inline-block">
+                              <span className="text-xs text-blue-300">• Host Controls</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+
+                    {/* Future Apps - Placeholder */}
+                    <div className="w-full p-4 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50">
+                      <div className="flex items-center space-x-3">
+                        <div className="text-3xl">
+                          <i className="bi bi-music-note-list" />
+                        </div>
+                        <div className="text-left">
+                          <h4 className="text-gray-400 font-bold text-lg mb-1">Music Player</h4>
+                          <p className="text-gray-500 text-sm">Coming Soon</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {hamburgerTab === 'chat' && (
+                  <div className="flex flex-col h-full">
+                    {/* Chat Header */}
+                    <div className="bg-gradient-to-r from-purple-600/30 to-pink-600/30 backdrop-blur-sm p-3 border-b border-white/10 rounded-t-lg">
+                      <div className="flex items-center space-x-2">
+                        <div className="p-1.5 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 shadow-lg">
+                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                        <div>
+                          <h3 className="text-white font-bold text-sm">
+                            Chat
+                          </h3>
+                          <p className="text-purple-200 text-xs">
+                            {messages.length} message{messages.length !== 1 ? 's' : ''}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Messages Container */}
+                    <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin scrollbar-thumb-purple-500 scrollbar-track-transparent max-h-64">
+                      {messages.length > 0 ? (
+                        messages.map((msg, index) => (
+                          <div key={msg.id} className="group">
+                            <div className={`flex items-start space-x-2 ${msg.username === userProfile.display_name ? 'justify-end' : 'justify-start'}`}>
+                              {/* Avatar for other users (left side) */}
+                              {msg.username !== userProfile.display_name && (
+                                <div className="flex-shrink-0">
+                                  <img
+                                    src={msg.avatar || getAvatarUrl(msg.username.charAt(0).toUpperCase())}
+                                    alt={msg.username}
+                                    className="w-6 h-6 rounded-full border border-purple-400 shadow-sm object-cover"
+                                    onError={(e) => {
+                                      e.target.src = getAvatarUrl(msg.username.charAt(0).toUpperCase());
+                                    }}
+                                  />
+                                </div>
+                              )}
+                              
+                              {/* Message bubble */}
+                              <div className={`max-w-xs px-3 py-2 rounded-xl shadow-sm backdrop-blur-sm border transition-all duration-300 group-hover:shadow-md ${
+                                msg.username === userProfile.display_name
+                                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white border-purple-500/20'
+                                  : 'bg-white/10 text-white border-white/20'
+                              }`}>
+                                {msg.username !== userProfile.display_name && (
+                                  <div className="text-xs font-medium text-purple-300 mb-1">
+                                    {msg.username}
+                                  </div>
+                                )}
+                                <div className="text-xs leading-relaxed break-words">
+                                  {msg.message}
+                                </div>
+                                <div className={`text-xs mt-1 opacity-70 ${
+                                  msg.username === userProfile.display_name ? 'text-purple-100' : 'text-gray-300'
+                                }`}>
+                                  {new Date(msg.timestamp || Date.now()).toLocaleTimeString([], { 
+                                    hour: '2-digit', 
+                                    minute: '2-digit' 
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Avatar for current user (right side) */}
+                              {msg.username === userProfile.display_name && (
+                                <div className="flex-shrink-0">
+                                  <img
+                                    src={msg.avatar || userProfile.avatar_url}
+                                    alt={userProfile.display_name}
+                                    className="w-6 h-6 rounded-full border border-purple-400 shadow-sm object-cover"
+                                    onError={() => {
+                                      e.target.src = userProfile.avatar_url;
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-6">
+                          <div className="text-4xl mb-2 opacity-50">💬</div>
+                          <div className="text-purple-200 text-xs">
+                            No messages yet
+                          </div>
+                          <div className="text-purple-300 text-xs mt-1">
+                            Start the conversation!
+                          </div>
+                        </div>
+                      )}
+                      <div ref={messagesEndRef} />
+                    </div>
+
+                    {/* Message Input */}
+                    <div className="p-3 border-t border-white/10 bg-black/20">
+                      <div className="flex space-x-2">
+                        <div className="flex-1 relative">
+                          <input
+                            type="text"
+                            value={newMessage}
+                            onChange={(e) => setNewMessage(e.target.value)}
+                            onKeyPress={(e) => handleKeyPress(e, sendMessage)}
+                            placeholder="Type your message..."
+                            maxLength={200}
+                            className="w-full px-3 py-2 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-purple-200 text-xs transition-all duration-300 hover:bg-white/15"
+                          />
+                          <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-purple-300">
+                            {newMessage.length}/200
+                          </div>
+                        </div>
+                        <button
+                          onClick={sendMessage}
+                          disabled={!newMessage.trim()}
+                          className="group relative overflow-hidden bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 disabled:from-gray-600 disabled:to-gray-700 px-3 py-2 rounded-lg font-medium text-white transition-all duration-300 transform hover:scale-105 disabled:hover:scale-100 shadow-lg hover:shadow-purple-500/25"
+                        >
+                          <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                          <div className="relative">
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                              <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+                            </svg>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Chat Panel */}
+        {showChat && (
+          <div className="fixed bottom-20 right-4 z-50 bg-gray-800 rounded-xl p-4 w-80 shadow-2xl border border-gray-700 max-h-96 flex flex-col">
+            {/* Chat Header */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center space-x-2">
+                <div className="p-1.5 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 shadow-lg">
+                  <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-white font-bold text-sm">
+                    Chat
+                  </h3>
+                  <p className="text-purple-200 text-xs">
+                    {messages.length} message{messages.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowChat(false)}
+                className="p-1.5 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"
+                aria-label="Close chat"
+              >
+                <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Messages Container */}
+            <div className="flex-1 overflow-y-auto space-y-2 scrollbar-thin scrollbar-thumb-purple-500 scrollbar-track-transparent max-h-48 mb-3">
+              {messages.length > 0 ? (
+                messages.map((msg, index) => (
+                  <div
+                    key={index}
+                    className={`p-2 rounded-lg text-xs ${
+                      msg.username === userProfile.display_name
+                        ? 'bg-gradient-to-r from-purple-500/20 to-pink-500/20 ml-8 border-l-4 border-purple-400'
+                        : 'bg-gray-700/50 mr-8 border-l-4 border-gray-500'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2 mb-1">
+                      <span className="font-bold text-white text-xs">
+                        {msg.username}
+                      </span>
+                      <span className="text-gray-400 text-xs">
+                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <div className="text-gray-200 text-xs break-words">
+                      {msg.message}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-4">
+                  <div className="text-2xl mb-1 opacity-50">💬</div>
+                  <div className="text-purple-200 text-xs">
+                    No messages yet
+                  </div>
+                  <div className="text-purple-300 text-xs mt-1">
+                    Start the conversation!
+                  </div>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Message Input */}
+            <div className="border-t border-white/10 pt-3">
+              <div className="flex space-x-2">
+                <div className="flex-1 relative">
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyPress={(e) => handleKeyPress(e, sendMessage)}
+                    placeholder="Type your message..."
+                    maxLength={200}
+                    className="w-full px-3 py-2 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-purple-200 text-xs transition-all duration-300 hover:bg-white/15"
+                  />
+                  <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-purple-300">
+                    {newMessage.length}/200
+                  </div>
+                </div>
+                <button
+                  onClick={sendMessage}
+                  disabled={!newMessage.trim()}
+                  className="group relative overflow-hidden bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 disabled:from-gray-600 disabled:to-gray-700 px-3 py-2 rounded-lg font-medium text-white transition-all duration-300 transform hover:scale-105 disabled:hover:scale-100 shadow-lg hover:shadow-purple-500/25"
+                >
+                  <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                  <div className="relative">
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+                    </svg>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* Invite Friends Modal */}
         {user && userProfile && (
@@ -1213,6 +1616,29 @@ export default function Room() {
             isVisible={showVideoChat}
             onClose={() => setShowVideoChat(false)}
           />
+        )}
+
+        {/* Canvas Modal */}
+        {showCanvas && (
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-4xl max-h-[90vh] overflow-auto">
+              <Canvas
+                socket={socket}
+                roomCode={code}
+                isHost={isHost}
+                username={userProfile.display_name}
+              />
+              <button
+                onClick={() => setShowCanvas(false)}
+                className="absolute top-4 right-4 p-2 rounded-full bg-gray-800 hover:bg-gray-700 text-white transition-colors"
+                aria-label="Close canvas"
+              >
+                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+          </div>
         )}
 
         {/* User Context Menu */}

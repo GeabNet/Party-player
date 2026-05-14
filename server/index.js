@@ -198,6 +198,7 @@ app.post('/api/create-room', (req, res) => {
     users: [],
     currentVideo: null,
     messages: [],
+    canvasHistory: [],
     createdAt: Date.now()
   };
 
@@ -340,7 +341,8 @@ io.on('connection', (socket) => {
       isHost: room.host === socket.id,
       currentVideo: room.currentVideo,
       messages: room.messages,
-      users: room.users
+      users: room.users,
+      canvasHistory: room.canvasHistory
     });
 
     // Notify other users
@@ -545,6 +547,43 @@ io.on('connection', (socket) => {
   socket.on('user-unmuted', ({ roomCode }) => {
     console.log(`User ${socket.id} unmuted in room ${roomCode}`);
     socket.to(roomCode).emit('user-unmuted', { userId: socket.id });
+  });
+
+  /**
+   * Canvas drawing events
+   */
+  socket.on('canvas-draw', ({ roomCode, startX, startY, endX, endY, color, brushSize }) => {
+    console.log(`Canvas draw in room ${roomCode} by ${socket.id}`);
+    
+    const room = rooms[roomCode];
+    if (!room) return;
+    
+    // Store drawing in history
+    const drawing = { startX, startY, endX, endY, color, brushSize, timestamp: Date.now() };
+    room.canvasHistory.push(drawing);
+    
+    // Limit history to prevent memory issues (keep last 1000 drawings)
+    if (room.canvasHistory.length > 1000) {
+      room.canvasHistory = room.canvasHistory.slice(-1000);
+    }
+    
+    // Broadcast to all other users in the room
+    socket.to(roomCode).emit('canvas-draw', {
+      startX, startY, endX, endY, color, brushSize
+    });
+  });
+
+  socket.on('canvas-clear', ({ roomCode }) => {
+    console.log(`Canvas cleared in room ${roomCode} by ${socket.id}`);
+    
+    const room = rooms[roomCode];
+    if (!room) return;
+    
+    // Clear canvas history
+    room.canvasHistory = [];
+    
+    // Broadcast to all other users in the room
+    socket.to(roomCode).emit('canvas-clear');
   });
 
   /**
