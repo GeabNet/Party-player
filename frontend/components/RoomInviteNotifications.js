@@ -1,97 +1,77 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '../contexts/AuthContext'
+import { getAvatarUrl } from '../utils/urls'
 
 export default function RoomInviteNotifications() {
   const { pendingInvites, acceptRoomInvite, rejectRoomInvite } = useAuth()
-  const [showNotifications, setShowNotifications] = useState(false)
+  const [show, setShow] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
-    setShowNotifications(pendingInvites.length > 0)
+    setShow(pendingInvites.length > 0)
   }, [pendingInvites])
 
-  const handleAcceptInvite = async (invite) => {
+  const handleAccept = async (invite) => {
     try {
       const result = await acceptRoomInvite(invite.id)
-      if (!result.error) {
-        // Navigate to the room
-        router.push(`/r/${invite.room_code}/lobby`)
-      }
+      if (!result.error) router.push(`/r/${invite.room_code}`)
     } catch (error) {
       console.error('Error accepting invite:', error)
     }
   }
 
-  const handleRejectInvite = async (inviteId) => {
-    try {
-      await rejectRoomInvite(inviteId)
-    } catch (error) {
-      console.error('Error rejecting invite:', error)
-    }
+  const handleReject = async (id) => {
+    try { await rejectRoomInvite(id) } catch (e) { console.error(e) }
   }
 
-  if (!showNotifications || pendingInvites.length === 0) {
-    return null
-  }
+  if (!show || pendingInvites.length === 0) return null
 
   return (
-    <div className="fixed top-4 right-4 z-50 space-y-2">
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-sm space-y-2 pointer-events-none">
       {pendingInvites.slice(0, 3).map((invite) => (
         <div
           key={invite.id}
-          className="bg-gray-800 border border-purple-500 rounded-lg p-4 shadow-lg max-w-sm animate-pulse"
+          className="pointer-events-auto surface-raised p-3 animate-fade-in-up"
         >
-          <div className="flex items-start space-x-3">
+          <div className="flex items-start gap-3">
             <img
-              src={invite.from_user.avatar_url}
+              src={invite.from_user.avatar_url || getAvatarUrl(invite.from_user.username || 'U')}
               alt={invite.from_user.display_name}
-              className="w-8 h-8 rounded-full flex-shrink-0"
+              className="w-9 h-9 rounded-full object-cover border border-line shrink-0"
             />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white">
-                Room Invite
-              </p>
-              <p className="text-xs text-gray-300">
-                <span className="font-medium">{invite.from_user.display_name}</span> invited you to room{' '}
-                <span className="font-mono bg-gray-700 px-1 rounded">{invite.room_code}</span>
-              </p>
-              <div className="flex space-x-2 mt-3">
-                <button
-                  onClick={() => handleAcceptInvite(invite)}
-                  className="bg-green-600 hover:bg-green-700 text-white text-xs px-3 py-1 rounded transition-colors"
-                >
+              <div className="text-sm">
+                <span className="font-medium">{invite.from_user.display_name}</span>{' '}
+                <span className="text-ink-2">invited you to</span>{' '}
+                <span className="font-mono text-xs bg-surface-3 border border-line px-1.5 py-0.5 rounded">
+                  {invite.room_code}
+                </span>
+              </div>
+              <div className="flex gap-2 mt-2.5">
+                <button onClick={() => handleAccept(invite)} className="btn-primary py-1.5 px-3 text-xs">
                   Join
                 </button>
-                <button
-                  onClick={() => handleRejectInvite(invite.id)}
-                  className="bg-gray-600 hover:bg-gray-700 text-white text-xs px-3 py-1 rounded transition-colors"
-                >
+                <button onClick={() => handleReject(invite.id)} className="btn-ghost py-1.5 px-3 text-xs">
                   Decline
                 </button>
               </div>
             </div>
             <button
-              onClick={() => handleRejectInvite(invite.id)}
-              className="text-gray-400 hover:text-white transition-colors"
+              onClick={() => handleReject(invite.id)}
+              className="text-ink-3 hover:text-ink-0 transition p-1"
+              aria-label="Dismiss"
             >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-              </svg>
+              <i className="bi bi-x-lg text-sm" />
             </button>
           </div>
         </div>
       ))}
-      
+
       {pendingInvites.length > 3 && (
-        <div className="bg-gray-700 rounded-lg p-3 text-center">
-          <p className="text-xs text-gray-300">
-            +{pendingInvites.length - 3} more invites
-          </p>
-          <button
-            onClick={() => router.push('/friends')}
-            className="text-purple-400 hover:text-purple-300 text-xs underline"
-          >
+        <div className="pointer-events-auto surface-flat p-2.5 text-center">
+          <p className="text-xs text-ink-2">+{pendingInvites.length - 3} more invites</p>
+          <button onClick={() => router.push('/friends')} className="text-accent hover:text-accent-hover text-xs font-medium mt-1">
             View all
           </button>
         </div>

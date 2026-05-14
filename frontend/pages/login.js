@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext'
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const { signIn } = useAuth()
@@ -14,9 +15,8 @@ export default function Login() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    
     if (!email || !password) {
-      setError('Please fill in all fields')
+      setError('Enter your email and password to continue.')
       return
     }
 
@@ -24,7 +24,7 @@ export default function Login() {
     setError('')
 
     const { error } = await signIn(email, password)
-    
+
     if (error) {
       setError(error.message)
       setLoading(false)
@@ -36,76 +36,91 @@ export default function Login() {
   return (
     <>
       <Head>
-        <title>Login - Party Player</title>
+        <title>Sign in · Party Player</title>
       </Head>
-      
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-pink-900 flex items-center justify-center px-4">
-        <div className="max-w-md w-full">
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20 shadow-2xl">
-            {/* Header */}
-            <div className="text-center mb-8">
-              <h1 className="text-3xl font-bold text-white mb-2">Welcome Back</h1>
-              <p className="text-purple-200">Sign in to your Party Player account</p>
+
+      <div className="page bg-dotted flex items-center justify-center px-4">
+        <div className="w-full max-w-md animate-fade-in-up">
+          <div className="flex items-center justify-center mb-8">
+            <div className="w-11 h-11 rounded-2xl bg-accent grid place-items-center text-white text-xl font-bold shadow-glow">P</div>
+          </div>
+
+          <div className="surface-card p-7 sm:p-8">
+            <div className="mb-6">
+              <h1 className="text-2xl font-semibold tracking-tight">Welcome back</h1>
+              <p className="text-ink-2 text-sm mt-1">Sign in to your Party Player account.</p>
             </div>
 
-            {/* Error Message */}
             {error && (
-              <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-3 mb-6">
-                <p className="text-red-200 text-sm">{error}</p>
+              <div className="mb-5 p-3 rounded-xl bg-danger-soft border border-danger/30 text-danger text-sm">
+                {error}
               </div>
             )}
 
-            {/* Login Form */}
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label htmlFor="email" className="block text-purple-200 text-sm font-medium mb-2">
-                  Email Address
-                </label>
+                <label htmlFor="email" className="label">Email</label>
                 <input
                   id="email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                  placeholder="Enter your email"
+                  className="input"
+                  placeholder="you@example.com"
+                  autoComplete="email"
                   required
                 />
               </div>
 
               <div>
-                <label htmlFor="password" className="block text-purple-200 text-sm font-medium mb-2">
-                  Password
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                  placeholder="Enter your password"
-                  required
-                />
+                <label htmlFor="password" className="label">Password</label>
+                <div className="relative">
+                  <input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="input pr-12"
+                    placeholder="••••••••"
+                    autoComplete="current-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 px-3 h-9 text-xs text-ink-2 hover:text-ink-0 rounded-lg hover:bg-surface-4 transition"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-300 transform hover:scale-105 disabled:hover:scale-100"
+                className="btn-primary btn-lg w-full"
               >
-                {loading ? 'Signing In...' : 'Sign In'}
+                {loading ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    Signing in…
+                  </span>
+                ) : 'Sign in'}
               </button>
             </form>
 
-            {/* Links */}
-            <div className="mt-6 text-center">
-              <p className="text-purple-200 text-sm">
-                Don&apos;t have an account?{' '}
-                <Link href="/signup" className="text-purple-300 hover:text-white font-medium transition-colors">
-                  Sign up
-                </Link>
-              </p>
+            <div className="mt-6 pt-5 border-t border-line text-center text-sm text-ink-2">
+              New here?{' '}
+              <Link href="/signup" className="text-accent hover:text-accent-hover font-medium">
+                Create an account
+              </Link>
             </div>
           </div>
+
+          <p className="text-center text-xs text-ink-3 mt-6">
+            Watch YouTube together · Synced playback · Real-time chat
+          </p>
         </div>
       </div>
     </>

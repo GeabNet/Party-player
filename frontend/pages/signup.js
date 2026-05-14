@@ -10,8 +10,9 @@ export default function Signup() {
     password: '',
     confirmPassword: '',
     username: '',
-    displayName: ''
+    displayName: '',
   })
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -19,45 +20,36 @@ export default function Signup() {
   const router = useRouter()
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    })
+    setFormData({ ...formData, [e.target.name]: e.target.value })
   }
 
-  const validateForm = () => {
+  const validate = () => {
     if (!formData.email || !formData.password || !formData.username || !formData.displayName) {
-      setError('Please fill in all fields')
+      setError('Please fill in all fields.')
       return false
     }
-
     if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match')
+      setError('Passwords do not match.')
       return false
     }
-
     if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters long')
+      setError('Password must be at least 6 characters.')
       return false
     }
-
     if (formData.username.length < 3) {
-      setError('Username must be at least 3 characters long')
+      setError('Username must be at least 3 characters.')
       return false
     }
-
     if (!/^[a-zA-Z0-9_]+$/.test(formData.username)) {
-      setError('Username can only contain letters, numbers, and underscores')
+      setError('Username can only contain letters, numbers, and underscores.')
       return false
     }
-
     return true
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    
-    if (!validateForm()) return
+    if (!validate()) return
 
     setLoading(true)
     setError('')
@@ -67,130 +59,132 @@ export default function Signup() {
       formData.email,
       formData.password,
       formData.username,
-      formData.displayName
+      formData.displayName,
     )
-    
+
     if (error) {
       setError(error.message)
       setLoading(false)
     } else {
-      setSuccess('Account created successfully! Please check your email to verify your account.')
+      setSuccess('Account created. Check your email to verify, then sign in.')
       setLoading(false)
-      // Redirect to login after 3 seconds
-      setTimeout(() => {
-        router.push('/login')
-      }, 3000)
+      setTimeout(() => router.push('/login'), 2500)
     }
   }
 
   return (
     <>
       <Head>
-        <title>Sign Up - Party Player</title>
+        <title>Create account · Party Player</title>
       </Head>
-      
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-pink-900 flex items-center justify-center px-4">
-        <div className="max-w-md w-full">
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20 shadow-2xl">
-            {/* Header */}
-            <div className="text-center mb-8">
-              <h1 className="text-3xl font-bold text-white mb-2">Join Party Player</h1>
-              <p className="text-purple-200">Create your account to connect with friends</p>
+
+      <div className="page bg-dotted flex items-center justify-center px-4 py-10">
+        <div className="w-full max-w-md animate-fade-in-up">
+          <div className="flex items-center justify-center mb-8">
+            <div className="w-11 h-11 rounded-2xl bg-accent grid place-items-center text-white text-xl font-bold shadow-glow">P</div>
+          </div>
+
+          <div className="surface-card p-7 sm:p-8">
+            <div className="mb-6">
+              <h1 className="text-2xl font-semibold tracking-tight">Create your account</h1>
+              <p className="text-ink-2 text-sm mt-1">Join Party Player and watch together with friends.</p>
             </div>
 
-            {/* Error Message */}
             {error && (
-              <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-3 mb-6">
-                <p className="text-red-200 text-sm">{error}</p>
+              <div className="mb-5 p-3 rounded-xl bg-danger-soft border border-danger/30 text-danger text-sm">
+                {error}
               </div>
             )}
-
-            {/* Success Message */}
             {success && (
-              <div className="bg-green-500/20 border border-green-500/50 rounded-lg p-3 mb-6">
-                <p className="text-green-200 text-sm">{success}</p>
+              <div className="mb-5 p-3 rounded-xl bg-success-soft border border-success/30 text-success text-sm">
+                {success}
               </div>
             )}
 
-            {/* Signup Form */}
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label htmlFor="email" className="block text-purple-200 text-sm font-medium mb-2">
-                  Email Address
-                </label>
+                <label htmlFor="email" className="label">Email</label>
                 <input
                   id="email"
                   name="email"
                   type="email"
                   value={formData.email}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                  placeholder="Enter your email"
+                  className="input"
+                  placeholder="you@example.com"
+                  autoComplete="email"
                   required
                 />
               </div>
 
-              <div>
-                <label htmlFor="username" className="block text-purple-200 text-sm font-medium mb-2">
-                  Username
-                </label>
-                <input
-                  id="username"
-                  name="username"
-                  type="text"
-                  value={formData.username}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                  placeholder="Choose a unique username"
-                  required
-                />
-                <p className="text-purple-300 text-xs mt-1">Your friends will use this to send you friend requests</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="username" className="label">Username</label>
+                  <input
+                    id="username"
+                    name="username"
+                    type="text"
+                    value={formData.username}
+                    onChange={handleChange}
+                    className="input"
+                    placeholder="yashpatil"
+                    autoComplete="username"
+                    required
+                  />
+                  <p className="helper">Friends use this to find you.</p>
+                </div>
+                <div>
+                  <label htmlFor="displayName" className="label">Display name</label>
+                  <input
+                    id="displayName"
+                    name="displayName"
+                    type="text"
+                    value={formData.displayName}
+                    onChange={handleChange}
+                    className="input"
+                    placeholder="Yash"
+                    required
+                  />
+                  <p className="helper">Shown to others in rooms.</p>
+                </div>
               </div>
 
               <div>
-                <label htmlFor="displayName" className="block text-purple-200 text-sm font-medium mb-2">
-                  Display Name
-                </label>
-                <input
-                  id="displayName"
-                  name="displayName"
-                  type="text"
-                  value={formData.displayName}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                  placeholder="Your display name"
-                  required
-                />
+                <label htmlFor="password" className="label">Password</label>
+                <div className="relative">
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={formData.password}
+                    onChange={handleChange}
+                    className="input pr-12"
+                    placeholder="At least 6 characters"
+                    autoComplete="new-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 px-3 h-9 text-xs text-ink-2 hover:text-ink-0 rounded-lg hover:bg-surface-4 transition"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
               </div>
 
               <div>
-                <label htmlFor="password" className="block text-purple-200 text-sm font-medium mb-2">
-                  Password
-                </label>
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                  placeholder="Choose a strong password"
-                  required
-                />
-              </div>
-
-              <div>
-                <label htmlFor="confirmPassword" className="block text-purple-200 text-sm font-medium mb-2">
-                  Confirm Password
-                </label>
+                <label htmlFor="confirmPassword" className="label">Confirm password</label>
                 <input
                   id="confirmPassword"
                   name="confirmPassword"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={formData.confirmPassword}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                  placeholder="Confirm your password"
+                  className="input"
+                  placeholder="Repeat your password"
+                  autoComplete="new-password"
                   required
                 />
               </div>
@@ -198,20 +192,22 @@ export default function Signup() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-300 transform hover:scale-105 disabled:hover:scale-100 mt-6"
+                className="btn-primary btn-lg w-full mt-1"
               >
-                {loading ? 'Creating Account...' : 'Create Account'}
+                {loading ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    Creating account…
+                  </span>
+                ) : 'Create account'}
               </button>
             </form>
 
-            {/* Links */}
-            <div className="mt-6 text-center space-y-2">
-              <p className="text-purple-200 text-sm">
-                Already have an account?{' '}
-                <Link href="/login" className="text-purple-300 hover:text-white font-medium transition-colors">
-                  Sign in
-                </Link>
-              </p>
+            <div className="mt-6 pt-5 border-t border-line text-center text-sm text-ink-2">
+              Already have an account?{' '}
+              <Link href="/login" className="text-accent hover:text-accent-hover font-medium">
+                Sign in
+              </Link>
             </div>
           </div>
         </div>
