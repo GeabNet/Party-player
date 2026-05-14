@@ -1,353 +1,151 @@
-/* stylelint-disable at-rule-no-unknown */
-/* eslint-disable */
-/* CSS linter: Tailwind CSS directives are valid */
-/* prettier-ignore */
-
-/**
- * Global styles for the watch party application
- * Includes Tailwind CSS imports and custom styles
- * 
- * Note: @tailwind and @apply are Tailwind CSS directives
- * These are processed by PostCSS and Tailwind CSS during build
- */
-
-/* Tailwind CSS imports - processed by PostCSS */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Custom base styles */
 @layer base {
-  html {
-    scroll-behavior: smooth;
+  :root {
+    color-scheme: dark;
   }
-  
+
+  html, body, #__next {
+    height: 100%;
+    background: #0A0A0B;
+  }
+
   body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    @apply bg-surface-1 text-ink-0 antialiased;
+    font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-feature-settings: 'cv11', 'ss01';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-}
 
-/* Custom scrollbar styles */
-@layer utilities {
-  .scrollbar-thin {
-    scrollbar-width: thin;
-  }
-  
-  .scrollbar-thumb-purple-500 {
-    scrollbar-color: rgb(168 85 247) transparent;
-  }
-  
-  .scrollbar-track-transparent {
-    scrollbar-color: rgb(168 85 247) transparent;
-  }
-  
-  /* Webkit scrollbar styles */
-  .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
-  }
-  
-  .scrollbar-thin::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  
-  .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: rgb(168 85 247);
-    border-radius: 3px;
-  }
-  
-  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background: rgb(147 51 234);
+  ::selection {
+    background: rgba(59,130,246,0.35);
+    color: #fff;
   }
 }
 
-/* Additional body styles */
-@layer base {
-  body {
-    @apply font-sans antialiased;
-  }
-  
-  /* Ensure full height for mobile */
-  html, body, #__next {
-    height: 100%;
-  }
-}
-
-/* Custom component styles */
 @layer components {
-  /* Custom scrollbar for chat */
-  .chat-scrollbar::-webkit-scrollbar {
-    width: 4px;
+  /* Surfaces */
+  .surface-card {
+    @apply bg-surface-2 border border-line rounded-2xl shadow-card;
   }
-  
-  .chat-scrollbar::-webkit-scrollbar-track {
-    @apply bg-gray-700 rounded;
+  .surface-flat {
+    @apply bg-surface-2 border border-line rounded-2xl;
   }
-  
-  .chat-scrollbar::-webkit-scrollbar-thumb {
-    @apply bg-gray-500 rounded hover:bg-gray-400;
+  .surface-raised {
+    @apply bg-surface-3 border border-line rounded-2xl shadow-soft;
   }
-  
-  /* Custom focus styles */
-  .focus-ring {
-    @apply focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-800;
+
+  /* Inputs */
+  .input {
+    @apply w-full px-4 py-3 bg-surface-3 border border-line rounded-xl
+           text-ink-0 placeholder-ink-3 outline-none
+           transition focus:border-accent focus:ring-4 focus:ring-accent/25;
   }
-  
-  /* Button transitions */
-  .btn-transition {
-    @apply transition-all duration-200 transform hover:scale-105 active:scale-95;
+  .input-lg {
+    @apply px-5 py-4 text-lg;
   }
-  
-  /* Loading spinner */
-  .spinner {
-    @apply inline-block w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin;
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5
+           rounded-xl font-medium text-sm select-none outline-none
+           transition active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed
+           focus:ring-4 focus:ring-accent/30;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-white hover:bg-accent-hover;
+  }
+  .btn-secondary {
+    @apply btn bg-surface-3 text-ink-0 border border-line hover:bg-surface-4;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-ink-1 hover:bg-surface-3;
+  }
+  .btn-danger {
+    @apply btn bg-danger text-white hover:opacity-90;
+  }
+  .btn-lg {
+    @apply px-6 py-3.5 text-base rounded-2xl;
+  }
+
+  /* Labels & helpers */
+  .label {
+    @apply block text-xs font-medium text-ink-2 mb-2 tracking-wide uppercase;
+  }
+  .helper {
+    @apply text-xs text-ink-3 mt-1.5;
+  }
+
+  /* Chips / badges */
+  .chip {
+    @apply inline-flex items-center gap-1.5 text-xs font-medium
+           px-2.5 py-1 rounded-full bg-surface-3 border border-line text-ink-1;
+  }
+  .chip-success { @apply bg-success/10 border-success/30 text-success; }
+  .chip-accent  { @apply bg-accent-soft border-accent/30 text-accent; }
+  .chip-danger  { @apply bg-danger-soft border-danger/30 text-danger; }
+
+  /* Section header */
+  .section-title {
+    @apply text-xs font-semibold text-ink-3 uppercase tracking-[0.16em];
+  }
+
+  /* Page container */
+  .page {
+    @apply min-h-screen bg-surface-1 text-ink-0;
+  }
+  .page-shell {
+    @apply max-w-6xl mx-auto px-4 sm:px-6 py-6;
   }
 }
 
-/* Custom utilities */
 @layer utilities {
-  /* Hide scrollbar but allow scrolling */
-  .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+  /* Scrollbars */
+  .scroll-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scroll-thin::-webkit-scrollbar-track { background: transparent; }
+  .scroll-thin::-webkit-scrollbar-thumb { background: #2A2A30; border-radius: 999px; }
+  .scroll-thin::-webkit-scrollbar-thumb:hover { background: #3A3A42; }
+
+  .scroll-hidden { scrollbar-width: none; -ms-overflow-style: none; }
+  .scroll-hidden::-webkit-scrollbar { display: none; }
+
+  /* Subtle dotted background */
+  .bg-dotted {
+    background-image: radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 22px 22px;
+    background-position: -11px -11px;
   }
-  
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
-  }
-  
-  /* Gradient text */
-  .text-gradient {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-  
-  /* Glass morphism effect */
-  .glass {
-    backdrop-filter: blur(10px);
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+
+  /* Skeleton */
+  .skeleton {
+    background: linear-gradient(90deg, #16161A 0%, #1F1F25 50%, #16161A 100%);
+    background-size: 200% 100%;
+    @apply animate-shimmer rounded-md;
   }
 }
 
-/* PWA specific styles */
+/* PWA safe areas */
 @media (display-mode: standalone) {
   body {
-    /* Add padding for status bar on mobile PWAs */
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
   }
-  
-  /* Hide browser UI elements in standalone mode */
-  .pwa-hidden {
-    display: none;
-  }
 }
 
-/* Mobile optimizations */
+/* Mobile tap targets */
 @media (max-width: 768px) {
-  /* Improve touch targets */
-  button, input, textarea, select {
-    min-height: 44px;
-  }
-  
-  /* Prevent zoom on input focus */
-  input, textarea, select {
-    font-size: 16px;
-  }
-  
-  /* YouTube player responsive */
-  #youtube-player iframe {
-    width: 100% !important;
-    height: 100% !important;
-  }
+  button, input, textarea, select { min-height: 44px; }
+  input, textarea, select { font-size: 16px; }
+  #youtube-player iframe { width: 100% !important; height: 100% !important; }
 }
 
-/* High contrast mode support */
-@media (prefers-contrast: high) {
-  .bg-gray-800 {
-    @apply border border-gray-600;
-  }
-  
-  .text-gray-500 {
-    @apply text-gray-300;
-  }
-}
-
-/* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-/* Dark mode optimizations */
-@media (prefers-color-scheme: dark) {
-  /* Ensure proper contrast in dark mode */
-  .text-black {
-    @apply text-white;
-  }
-  
-  .text-gray-900 {
-    @apply text-gray-100;
-  }
-}
-
-/* Print styles */
-@media print {
-  body {
-    background-color: white;
-    color: black;
-  }
-  
-  .bg-gray-800, .bg-gray-900 {
-    background-color: white;
-  }
-  
-  /* Hide interactive elements when printing */
-  button, input, video, #youtube-player {
-    display: none !important;
-  }
-}
-
-/* Custom animations */
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes pulse-slow {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fade-in-up {
-  animation: fadeInUp 0.5s ease-out;
-}
-
-.animate-pulse-slow {
-  animation: pulse-slow 2s infinite;
-}
-
-.animate-fadeIn {
-  animation: fadeIn 0.3s ease-out;
-}
-
-/* Apps horizontal scroll on mobile */
-.apps-scroll-row {
-  display: flex;
-  gap: 1rem;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 0.5rem;
-}
-
-.apps-scroll-row > * {
-  flex: 0 0 auto;
-}
-
-.apps-scroll-row::-webkit-scrollbar {
-  height: 8px;
-}
-
-.apps-scroll-row::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.5);
-  border-radius: 9999px;
-}
-
-.app-card-mobile {
-  min-width: 220px;
-}
-
-/* Design tokens (CSS variables) */
-:root {
-  --bg-900: #0f1724; /* deep navy */
-  --bg-800: #111827; /* dark gray */
-  --panel: linear-gradient(180deg, rgba(17,24,39,0.85), rgba(15,23,36,0.85));
-  --accent: #7c3aed; /* purple */
-  --accent-2: #ec4899; /* pink */
-  --muted: #94a3b8;
-  --glass: rgba(255,255,255,0.03);
-  --card-radius: 12px;
-  --container-width: 1100px;
-}
-
-/* Layout containers */
-.app-container {
-  max-width: var(--container-width);
-  margin-left: auto;
-  margin-right: auto;
-  padding-left: 1rem;
-  padding-right: 1rem;
-}
-
-/* Card / panel */
-.card {
-  background: var(--panel);
-  border: 1px solid rgba(255,255,255,0.04);
-  border-radius: var(--card-radius);
-  box-shadow: 0 6px 18px rgba(2,6,23,0.6);
-}
-
-/* TopBar */
-.topbar {
-  background: linear-gradient(90deg, rgba(6,7,12,0.7), rgba(17,24,39,0.85));
-  border-bottom: 1px solid rgba(255,255,255,0.04);
-}
-
-/* Sidebar */
-.sidenav {
-  background: linear-gradient(180deg, rgba(6,7,12,0.6), rgba(9,10,14,0.6));
-  border-right: 1px solid rgba(255,255,255,0.03);
-}
-
-/* Primary button */
-.btn-primary {
-  @apply inline-flex items-center gap-2 px-4 py-2 rounded-md font-medium text-white;
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
-  box-shadow: 0 6px 20px rgba(124,58,237,0.18);
-}
-
-/* Muted text */
-.muted { color: var(--muted); }
-
-/* Clean badge */
-.badge {
-  @apply text-xs px-2 py-1 rounded-full font-semibold;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.02);
-}
-
-/* Icon circle */
-.icon-circle { @apply inline-flex items-center justify-center rounded-full w-10 h-10; }
-
-/* Responsive tweaks */
-@media (max-width: 768px) {
-  :root { --container-width: 100%; }
 }

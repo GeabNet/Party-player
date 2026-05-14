@@ -225,40 +225,6 @@ app.get('/api/room/:code', (req, res) => {
   });
 });
 
-/**
- * AI Recommendations stub - returns placeholder YouTube URLs
- * Future integration point for Gemini API
- */
-app.get('/api/recommend', (req, res) => {
-  const { videoId } = req.query;
-  
-  // Placeholder recommendations - in production, integrate with Gemini API here
-  const placeholderRecommendations = [
-    {
-      videoId: 'dQw4w9WgXcQ',
-      title: 'Rick Astley - Never Gonna Give You Up',
-      thumbnail: `${process.env.YOUTUBE_THUMBNAIL_URL || 'https://img.youtube.com/vi'}/dQw4w9WgXcQ/default.jpg`
-    },
-    {
-      videoId: 'ZZ5LpwO-An4',
-      title: 'HEYYEYAAEYAAAEYAEYAA',
-      thumbnail: `${process.env.YOUTUBE_THUMBNAIL_URL || 'https://img.youtube.com/vi'}/ZZ5LpwO-An4/default.jpg`
-    },
-    {
-      videoId: 'oHg5SJYRHA0',
-      title: 'RickRoll\'d',
-      thumbnail: `${process.env.YOUTUBE_THUMBNAIL_URL || 'https://img.youtube.com/vi'}/oHg5SJYRHA0/default.jpg`
-    }
-  ];
-
-  console.log(`Recommendations requested for video: ${videoId}`);
-  
-  res.json({
-    recommendations: placeholderRecommendations,
-    note: "These are placeholder recommendations. Integrate Gemini API here for real recommendations."
-  });
-});
-
 // Socket.IO Connection Handling
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);

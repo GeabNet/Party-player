@@ -8,6 +8,7 @@
 CREATE TABLE IF NOT EXISTS public.users (
   id UUID REFERENCES auth.users(id) PRIMARY KEY,
   username VARCHAR(50) UNIQUE NOT NULL,
+  user_discriminator TEXT,
   display_name VARCHAR(100) NOT NULL,
   avatar_url TEXT,
   bio TEXT,
@@ -16,6 +17,10 @@ CREATE TABLE IF NOT EXISTS public.users (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Safety net for projects created before user_discriminator was added inline
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS user_discriminator TEXT;
+CREATE INDEX IF NOT EXISTS idx_users_username_discriminator ON public.users(username, user_discriminator);
 
 -- 2. Friend requests table
 CREATE TABLE IF NOT EXISTS public.friend_requests (

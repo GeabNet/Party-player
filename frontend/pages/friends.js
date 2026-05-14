@@ -8,560 +8,400 @@ import { getAvatarUrl } from '../utils/urls'
 import { db } from '../lib/supabase'
 
 export default function Friends() {
-  const { user, userProfile, friends, pendingRequests, pendingInvites, sendFriendRequest, sendFriendRequestBySpecialId, acceptFriendRequest, rejectFriendRequest, removeFriend, acceptRoomInvite, rejectRoomInvite, refreshUserData, loading, sessionRestored } = useAuth()
-  const { isConnected, getFilteredOnlineUsers, refreshOnlineUsers } = useSocket()
+  const {
+    user, userProfile, friends, pendingRequests, pendingInvites,
+    sendFriendRequest, acceptFriendRequest, rejectFriendRequest, removeFriend,
+    acceptRoomInvite, rejectRoomInvite, refreshUserData, loading, sessionRestored,
+  } = useAuth()
+  const { getFilteredOnlineUsers, refreshOnlineUsers } = useSocket()
+
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searchLoading, setSearchLoading] = useState(false)
-  const [loadingState, setLoadingState] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [activeTab, setActiveTab] = useState('friends')
   const [sendingRequestTo, setSendingRequestTo] = useState(null)
   const router = useRouter()
 
-  // Get filtered online users (excluding current user and friends)
   const onlineUsers = getFilteredOnlineUsers(friends)
 
   useEffect(() => {
-    if (sessionRestored && !loading && !user) {
-      router.push('/login')
-    }
+    if (sessionRestored && !loading && !user) router.push('/login')
   }, [user, loading, sessionRestored, router])
 
   useEffect(() => {
-    if (user) {
-      refreshUserData()
-    }
+    if (user) refreshUserData()
   }, [user, refreshUserData])
 
-  // Search for users when search term changes
   useEffect(() => {
-    const searchUsers = async () => {
-      if (!searchTerm.trim()) {
-        setSearchResults([])
-        return
+    const run = async () => {
+      if (!searchTerm.trim() || searchTerm.length < 2) {
+        setSearchResults([]); return
       }
-
-      if (searchTerm.length < 2) {
-        return
-      }
-
-      setSearchLoading(true)
-      setError('') // Clear previous errors
-      
+      setSearchLoading(true); setError('')
       try {
-        let data, error
-
-        // Check if search term is a special ID (contains #)
+        let data, err
         if (searchTerm.includes('#') && /^.+#\d{4}$/.test(searchTerm)) {
-          // Search by special ID
-          const result = await db.users.getBySpecialId(searchTerm)
-          data = result.data ? [result.data] : []
-          error = result.error
+          const r = await db.users.getBySpecialId(searchTerm)
+          data = r.data ? [r.data] : []; err = r.error
         } else {
-          // Regular username search
-          const result = await db.users.search(searchTerm)
-          data = result.data
-          error = result.error
+          const r = await db.users.search(searchTerm)
+          data = r.data; err = r.error
         }
-
-        if (error) {
-          console.error('Search error:', error)
-          setSearchResults([])
-          setError(`Search failed: ${error.message}`)
+        if (err) {
+          setSearchResults([]); setError(`Search failed: ${err.message}`)
         } else {
-          // Filter out current user and existing friends
-          const filteredResults = data?.filter(user => {
-            if (user.id === userProfile?.id) return false
-            // Check if user is already a friend
-            if (friends?.some(friend => friend.id === user.id)) return false
-            // Check pending requests
-            if (pendingRequests?.some(req => req.from_user.id === user.id || req.to_user.id === user.id)) return false
-            return true
-          }) || []
-          
-          setSearchResults(filteredResults)
+          const filtered = (data || []).filter(u =>
+            u.id !== userProfile?.id &&
+            !friends?.some(f => f.id === u.id) &&
+            !pendingRequests?.some(req => req.from_user.id === u.id || req.to_user.id === u.id)
+          )
+          setSearchResults(filtered)
         }
       } catch (err) {
-        console.error('Search exception:', err)
-        setSearchResults([])
-        setError(`Search failed: ${err.message}`)
+        setSearchResults([]); setError(`Search failed: ${err.message}`)
       } finally {
         setSearchLoading(false)
       }
     }
-
-    const timeoutId = setTimeout(searchUsers, 300) // Debounce search
-    return () => clearTimeout(timeoutId)
+    const t = setTimeout(run, 280)
+    return () => clearTimeout(t)
   }, [searchTerm, userProfile, friends, pendingRequests])
 
+  const flash = (msg, isError = false) => {
+    if (isError) { setError(msg); setSuccess('') }
+    else { setSuccess(msg); setError('') }
+    setTimeout(() => { setError(''); setSuccess('') }, 3500)
+  }
+
   const handleSendFriendRequest = async (targetUser) => {
-    if (!targetUser || !targetUser.id) {
-      setError('Invalid user selected')
-      return
-    }
-
+    if (!targetUser?.id) return flash('Invalid user', true)
     setSendingRequestTo(targetUser.id)
-    setError('')
-    setSuccess('')
-
     const result = await sendFriendRequest(targetUser.id)
-    
-    if (result && result.error) {
-      setError(result.error.message)
-    } else if (result && result.success) {
-      setSuccess(`Friend request sent to ${targetUser.display_name}`)
-      // Remove from search results
-      setSearchResults(prev => prev.filter(user => user.id !== targetUser.id))
-    } else {
-      // Assume success if no error
-      setSuccess(`Friend request sent to ${targetUser.display_name}`)
-      setSearchResults(prev => prev.filter(user => user.id !== targetUser.id))
+    if (result?.error) flash(result.error.message, true)
+    else {
+      flash(`Friend request sent to ${targetUser.display_name}`)
+      setSearchResults(prev => prev.filter(u => u.id !== targetUser.id))
     }
-    
     setSendingRequestTo(null)
   }
 
-  const handleAcceptRequest = async (requestId) => {
-    const { error } = await acceptFriendRequest(requestId)
-    if (error) {
-      setError(error.message)
-    } else {
-      setSuccess('Friend request accepted!')
-    }
+  const handleAcceptRequest = async (id) => {
+    const { error } = await acceptFriendRequest(id)
+    error ? flash(error.message, true) : flash('Friend request accepted')
   }
-
-  const handleRejectRequest = async (requestId) => {
-    const { error } = await rejectFriendRequest(requestId)
-    if (error) {
-      setError(error.message)
-    }
+  const handleRejectRequest = async (id) => {
+    const { error } = await rejectFriendRequest(id)
+    if (error) flash(error.message, true)
   }
-
   const handleRemoveFriend = async (friendshipId, friendName) => {
-    if (confirm(`Are you sure you want to remove ${friendName} from your friends?`)) {
-      const { error } = await removeFriend(friendshipId)
-      if (error) {
-        setError(error.message)
-      } else {
-        setSuccess(`Removed ${friendName} from friends`)
-      }
-    }
+    if (!confirm(`Remove ${friendName} from your friends?`)) return
+    const { error } = await removeFriend(friendshipId)
+    error ? flash(error.message, true) : flash(`Removed ${friendName}`)
   }
-
   const handleAcceptInvite = async (inviteId, roomCode) => {
     const { error } = await acceptRoomInvite(inviteId)
-    if (error) {
-      setError(error.message)
-    } else {
-      // Navigate to room
-      router.push(`/r/${roomCode}?username=${encodeURIComponent(userProfile.display_name)}&avatar=${encodeURIComponent(userProfile.avatar_url)}`)
-    }
+    if (error) flash(error.message, true)
+    else router.push(`/r/${roomCode}`)
   }
-
-  const handleRejectInvite = async (inviteId) => {
-    const { error } = await rejectRoomInvite(inviteId)
-    if (error) {
-      setError(error.message)
-    }
+  const handleRejectInvite = async (id) => {
+    const { error } = await rejectRoomInvite(id)
+    if (error) flash(error.message, true)
   }
 
   if (!user || !userProfile) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-white text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-          <p>Loading...</p>
+      <div className="page flex items-center justify-center">
+        <div className="text-ink-2 text-center">
+          <div className="w-10 h-10 mx-auto mb-3 border-2 border-ink-3 border-t-accent rounded-full animate-spin" />
+          <p className="text-sm">Loading…</p>
         </div>
       </div>
     )
   }
 
+  const userId = `${userProfile.username}#${userProfile.user_discriminator || '0000'}`
+
+  const tabs = [
+    { id: 'friends', label: 'Friends', count: friends.length, icon: 'bi-people-fill' },
+    { id: 'online', label: 'Online', count: onlineUsers?.length || 0, icon: 'bi-broadcast' },
+    { id: 'requests', label: 'Requests', count: pendingRequests.length, icon: 'bi-envelope' },
+    { id: 'invites', label: 'Invites', count: pendingInvites.length, icon: 'bi-door-open' },
+  ]
+
   return (
     <>
       <Head>
-        <title>Friends - Party Player</title>
+        <title>Friends · Party Player</title>
       </Head>
-      
-      <div className="min-h-screen bg-gray-900 text-white">
-        {/* Header */}
-        <div className="bg-gray-800 border-b border-gray-700 p-4">
-          <div className="max-w-6xl mx-auto flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <Link href="/">
-                <button className="text-gray-400 hover:text-white transition-colors">
-                  ← Back to Home
-                </button>
+
+      <div className="page">
+        {/* Top bar */}
+        <header className="sticky top-0 z-30 bg-surface-1/90 backdrop-blur border-b border-line">
+          <div className="page-shell flex items-center justify-between py-3">
+            <div className="flex items-center gap-3">
+              <Link href="/" className="btn-ghost px-2" aria-label="Home">
+                <i className="bi bi-arrow-left text-lg" />
               </Link>
-              <h1 className="text-2xl font-bold">Friends</h1>
+              <h1 className="text-lg font-semibold tracking-tight">Friends</h1>
             </div>
-            <div className="flex items-center space-x-2">
+            <Link href="/profile" className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-surface-3 transition">
               <img
-                src={userProfile.avatar_url}
+                src={userProfile.avatar_url || getAvatarUrl(userProfile.username)}
                 alt={userProfile.display_name}
-                className="w-8 h-8 rounded-full border-2 border-purple-400"
+                className="w-8 h-8 rounded-full object-cover border border-line"
               />
-              <span className="font-medium">{userProfile.display_name}</span>
-            </div>
+              <span className="text-sm font-medium hidden sm:block">{userProfile.display_name}</span>
+            </Link>
           </div>
-        </div>
+        </header>
 
-        <div className="max-w-6xl mx-auto p-6">
-          {/* Error/Success Messages */}
-          {error && (
-            <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-3 mb-6">
-              <p className="text-red-200 text-sm">{error}</p>
-            </div>
-          )}
-          
-          {success && (
-            <div className="bg-green-500/20 border border-green-500/50 rounded-lg p-3 mb-6">
-              <p className="text-green-200 text-sm">{success}</p>
+        <main className="page-shell">
+          {(error || success) && (
+            <div className={`mb-4 p-3 rounded-xl text-sm ${error ? 'bg-danger-soft border border-danger/30 text-danger' : 'bg-success-soft border border-success/30 text-success'}`}>
+              {error || success}
             </div>
           )}
 
-          {/* Add Friend Section */}
-          <div className="bg-gray-800 rounded-lg p-6 mb-6">
-            <h2 className="text-xl font-bold mb-4">Add Friend</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Left column: search + your ID */}
             <div className="space-y-4">
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search by username or User ID (e.g., john#1234)..."
-                className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              />
-              
-              {/* Search Results */}
-              {searchTerm && (
-                <div className="space-y-2">
-                  {searchLoading ? (
-                    <div className="flex items-center justify-center py-4">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-500"></div>
-                      <span className="ml-2 text-gray-400">Searching for &quot;{searchTerm}&quot;...</span>
-                    </div>
-                  ) : error ? (
-                    <div className="bg-red-900/50 border border-red-600 rounded-lg p-3">
-                      <p className="text-red-400 text-sm">❌ {error}</p>
-                    </div>
-                  ) : searchResults.length > 0 ? (
-                    <div className="space-y-2">
-                      <p className="text-sm text-gray-400">Found {searchResults.length} user{searchResults.length !== 1 ? 's' : ''}:</p>
-                      {searchResults.map((user) => (
-                        <div key={user.id} className="flex items-center justify-between bg-gray-700 rounded-lg p-3">
-                          <div className="flex items-center space-x-3">
-                            <img
-                              src={user.avatar_url}
-                              alt={user.display_name}
-                              className="w-10 h-10 rounded-full border-2 border-gray-600"
-                            />
-                            <div>
-                              <p className="font-medium">{user.display_name}</p>
-                              <p className="text-sm text-gray-400">
-                                {user.username}#{user.user_discriminator || '0000'}
-                              </p>
+              <div className="surface-card p-5">
+                <h2 className="text-sm font-semibold mb-3">Add friend</h2>
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search username or user#1234"
+                  className="input"
+                />
+                <p className="helper">Search by username or full user ID.</p>
+
+                {searchTerm && (
+                  <div className="mt-3 space-y-2">
+                    {searchLoading ? (
+                      <div className="text-ink-2 text-sm py-3 text-center inline-flex w-full items-center justify-center gap-2">
+                        <span className="w-4 h-4 border-2 border-ink-3 border-t-accent rounded-full animate-spin" />
+                        Searching…
+                      </div>
+                    ) : searchResults.length > 0 ? (
+                      searchResults.map((u) => (
+                        <div key={u.id} className="flex items-center gap-3 p-2 rounded-xl bg-surface-2">
+                          <img
+                            src={u.avatar_url || getAvatarUrl(u.username)}
+                            alt={u.display_name}
+                            className="w-9 h-9 rounded-full object-cover border border-line"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium truncate">{u.display_name}</div>
+                            <div className="text-xs text-ink-3 truncate font-mono">
+                              {u.username}#{u.user_discriminator || '0000'}
                             </div>
-                            {user.is_online && (
-                              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            )}
                           </div>
                           <button
-                            onClick={() => handleSendFriendRequest(user)}
-                            disabled={sendingRequestTo === user.id}
-                            className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                            onClick={() => handleSendFriendRequest(u)}
+                            disabled={sendingRequestTo === u.id}
+                            className="btn-primary py-1.5 px-3 text-xs"
                           >
-                            {sendingRequestTo === user.id ? 'Sending...' : 'Send Request'}
+                            {sendingRequestTo === u.id ? 'Sending…' : 'Add'}
                           </button>
                         </div>
-                      ))}
-                    </div>
-                  ) : searchTerm.length >= 2 ? (
-                    <p className="text-gray-400 text-center py-4">No users found matching &quot;{searchTerm}&quot;</p>
-                  ) : (
-                    <p className="text-gray-400 text-center py-2">Type at least 2 characters to search</p>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Your User ID Section */}
-          <div className="bg-gray-800 rounded-lg p-4 mb-6">
-            <h3 className="text-lg font-semibold mb-2">Your User ID</h3>
-            <div className="flex items-center justify-between bg-gray-700 rounded-lg p-3">
-              <div className="flex items-center space-x-3">
-                <img
-                  src={userProfile.avatar_url || getAvatarUrl(userProfile.username)}
-                  alt={userProfile.display_name}
-                  className="w-10 h-10 rounded-full border-2 border-gray-600"
-                />
-                <div>
-                  <p className="font-medium">{userProfile.display_name}</p>
-                  <p className="text-sm text-gray-400">
-                    {userProfile.username}#{userProfile.user_discriminator || '0000'}
-                  </p>
-                </div>
+                      ))
+                    ) : searchTerm.length >= 2 ? (
+                      <p className="text-ink-3 text-sm text-center py-3">No users found.</p>
+                    ) : null}
+                  </div>
+                )}
               </div>
-              <button
-                onClick={() => {
-                  const specialId = `${userProfile.username}#${userProfile.user_discriminator || '0000'}`
-                  navigator.clipboard.writeText(specialId)
-                  setSuccess('User ID copied to clipboard!')
-                  setTimeout(() => setSuccess(''), 3000)
-                }}
-                className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                title="Copy User ID"
-              >
-                Copy ID
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 mt-2">
-              Share your User ID with friends so they can send you friend requests directly!
-            </p>
-          </div>
 
-          {/* Tab Navigation */}
-          <div className="flex space-x-4 mb-6">
-            <button
-              onClick={() => setActiveTab('friends')}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                activeTab === 'friends' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
-            >
-              Friends ({friends.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('online')}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                activeTab === 'online' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
-            >
-              Online Users ({onlineUsers?.length || 0})
-            </button>
-            <button
-              onClick={() => setActiveTab('requests')}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                activeTab === 'requests' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
-            >
-              Pending Requests ({pendingRequests.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('invites')}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                activeTab === 'invites' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
-            >
-              Room Invites ({pendingInvites.length})
-            </button>
-          </div>
-
-          {/* Friends List */}
-          {activeTab === 'friends' && (
-            <div className="bg-gray-800 rounded-lg p-6">
-              <h2 className="text-xl font-bold mb-4">Your Friends</h2>
-              {friends.length === 0 ? (
-                <div className="text-center py-8">
-                  <div className="text-6xl mb-4">👥</div>
-                  <p className="text-gray-400">No friends yet</p>
-                  <p className="text-gray-500 text-sm mt-2">Send friend requests to connect with others!</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {friends.map((friend) => (
-                    <div key={friend.friendship_id} className="bg-gray-700 rounded-lg p-4 flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className="relative">
-                          <img
-                            src={friend.avatar_url || getAvatarUrl(friend.username)}
-                            alt={friend.display_name}
-                            className="w-12 h-12 rounded-full border-2 border-purple-400"
-                          />
-                          <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-gray-700 ${friend.is_online ? 'bg-green-400' : 'bg-gray-500'}`}></div>
-                        </div>
-                        <div>
-                          <p className="font-medium">{friend.display_name}</p>
-                          <p className="text-sm text-gray-400">@{friend.username}</p>
-                          <p className="text-xs text-gray-500">{friend.is_online ? 'Online' : 'Offline'}</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleRemoveFriend(friend.friendship_id, friend.display_name)}
-                        className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition-colors"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Online Users */}
-          {activeTab === 'online' && (
-            <div className="bg-gray-800 rounded-lg p-6">
-              <h2 className="text-xl font-bold mb-4">Online Users</h2>
-              {!onlineUsers || onlineUsers.length === 0 ? (
-                <div className="text-center py-8">
-                  <div className="text-6xl mb-4">👥</div>
-                  <p className="text-gray-400">No other users online</p>
+              <div className="surface-card p-5">
+                <h2 className="text-sm font-semibold mb-3">Your user ID</h2>
+                <div className="flex items-center gap-3 p-2.5 rounded-xl bg-surface-2">
+                  <img
+                    src={userProfile.avatar_url || getAvatarUrl(userProfile.username)}
+                    alt={userProfile.display_name}
+                    className="w-10 h-10 rounded-full object-cover border border-line"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{userProfile.display_name}</div>
+                    <div className="text-xs text-ink-3 truncate font-mono">{userId}</div>
+                  </div>
                   <button
-                    onClick={refreshOnlineUsers}
-                    className="mt-4 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors"
+                    onClick={() => {
+                      navigator.clipboard.writeText(userId)
+                      flash('User ID copied')
+                    }}
+                    className="btn-secondary py-1.5 px-3 text-xs"
                   >
-                    Refresh
+                    <i className="bi bi-clipboard" /> Copy
                   </button>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <p className="text-gray-400 text-sm">
-                      {onlineUsers.length} user{onlineUsers.length !== 1 ? 's' : ''} online
-                    </p>
-                    <button
-                      onClick={refreshOnlineUsers}
-                      className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors"
-                    >
-                      Refresh
-                    </button>
-                  </div>
-                  {onlineUsers.map((onlineUser) => (
-                    <div key={onlineUser.id} className="bg-gray-700 rounded-lg p-4 flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className="relative">
-                          <img
-                            src={onlineUser.avatar_url || getAvatarUrl(onlineUser.username)}
-                            alt={onlineUser.display_name}
-                            className="w-12 h-12 rounded-full border-2 border-gray-600"
-                          />
-                          <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-700"></div>
-                        </div>
-                        <div>
-                          <p className="font-medium">{onlineUser.display_name}</p>
-                          <p className="text-sm text-gray-400">
-                            {onlineUser.username}#{onlineUser.user_discriminator || '0000'}
-                          </p>
-                          <p className="text-xs text-green-400">Online</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleSendFriendRequest(onlineUser)}
-                        disabled={sendingRequestTo === onlineUser.id}
-                        className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
-                      >
-                        {sendingRequestTo === onlineUser.id ? 'Sending...' : 'Add Friend'}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+                <p className="helper">Share this so friends can add you directly.</p>
+              </div>
             </div>
-          )}
 
-          {/* Pending Requests */}
-          {activeTab === 'requests' && (
-            <div className="bg-gray-800 rounded-lg p-6">
-              <h2 className="text-xl font-bold mb-4">Pending Friend Requests</h2>
-              {pendingRequests.length === 0 ? (
-                <div className="text-center py-8">
-                  <div className="text-6xl mb-4">📬</div>
-                  <p className="text-gray-400">No pending requests</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {pendingRequests.map((request) => (
-                    <div key={request.id} className="bg-gray-700 rounded-lg p-4 flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <img
-                          src={request.from_user.avatar_url || getAvatarUrl(request.from_user.username)}
-                          alt={request.from_user.display_name}
-                          className="w-12 h-12 rounded-full border-2 border-purple-400"
-                        />
-                        <div>
-                          <p className="font-medium">{request.from_user.display_name}</p>
-                          <p className="text-sm text-gray-400">
-                            {request.from_user.username}#{request.from_user.user_discriminator || '0000'}
-                          </p>
-                          <p className="text-xs text-gray-500">Sent {new Date(request.created_at).toLocaleDateString()}</p>
-                        </div>
-                      </div>
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => handleAcceptRequest(request.id)}
-                          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded transition-colors"
-                        >
-                          Accept
-                        </button>
-                        <button
-                          onClick={() => handleRejectRequest(request.id)}
-                          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded transition-colors"
-                        >
-                          Decline
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+            {/* Right: tabs + lists */}
+            <div className="lg:col-span-2 space-y-4">
+              <div className="flex p-1 gap-1 surface-flat overflow-x-auto scroll-hidden">
+                {tabs.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setActiveTab(t.id)}
+                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium inline-flex items-center justify-center gap-2 transition
+                      ${activeTab === t.id ? 'bg-surface-3 text-ink-0 border border-line' : 'text-ink-2 hover:text-ink-0 hover:bg-surface-2'}`}
+                  >
+                    <i className={`bi ${t.icon}`} />
+                    <span>{t.label}</span>
+                    {t.count > 0 && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${activeTab === t.id ? 'bg-accent text-white' : 'bg-surface-3 text-ink-2'}`}>{t.count}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
 
-          {/* Room Invites */}
-          {activeTab === 'invites' && (
-            <div className="bg-gray-800 rounded-lg p-6">
-              <h2 className="text-xl font-bold mb-4">Room Invites</h2>
-              {pendingInvites.length === 0 ? (
-                <div className="text-center py-8">
-                  <div className="text-6xl mb-4">🎬</div>
-                  <p className="text-gray-400">No room invites</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {pendingInvites.map((invite) => (
-                    <div key={invite.id} className="bg-gray-700 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center space-x-3">
-                          <img
-                            src={invite.from_user.avatar_url || getAvatarUrl(invite.from_user.username)}
-                            alt={invite.from_user.display_name}
-                            className="w-10 h-10 rounded-full border-2 border-purple-400"
-                          />
-                          <div>
-                            <p className="font-medium">{invite.from_user.display_name} invited you to a room</p>
-                            <p className="text-sm text-gray-400">Room Code: {invite.room_code}</p>
-                            <p className="text-xs text-gray-500">Invited {new Date(invite.created_at).toLocaleDateString()}</p>
+              <div className="surface-card p-5 min-h-[300px]">
+                {activeTab === 'friends' && (
+                  friends.length === 0 ? (
+                    <EmptyState icon="bi-people" title="No friends yet" hint="Search for someone above and send a request." />
+                  ) : (
+                    <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {friends.map(f => (
+                        <li key={f.friendship_id} className="flex items-center gap-3 p-2.5 rounded-xl bg-surface-2">
+                          <div className="relative">
+                            <img
+                              src={f.avatar_url || getAvatarUrl(f.username)}
+                              alt={f.display_name}
+                              className="w-10 h-10 rounded-full object-cover border border-line"
+                            />
+                            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-surface-2 ${f.is_online ? 'bg-success' : 'bg-ink-4'}`} />
                           </div>
-                        </div>
-                        <div className="flex space-x-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium truncate">{f.display_name}</div>
+                            <div className="text-xs text-ink-3 truncate">{f.is_online ? 'Online' : 'Offline'}</div>
+                          </div>
                           <button
-                            onClick={() => handleAcceptInvite(invite.id, invite.room_code)}
-                            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded transition-colors"
+                            onClick={() => handleRemoveFriend(f.friendship_id, f.display_name)}
+                            className="btn-ghost py-1.5 px-2 text-xs text-danger"
+                            aria-label="Remove"
                           >
-                            Join Room
+                            <i className="bi bi-x-lg" />
                           </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )
+                )}
+
+                {activeTab === 'online' && (
+                  !onlineUsers || onlineUsers.length === 0 ? (
+                    <EmptyState icon="bi-broadcast" title="No one else is online" hint="Check back later or add friends." actionLabel="Refresh" onAction={refreshOnlineUsers} />
+                  ) : (
+                    <ul className="space-y-2">
+                      {onlineUsers.map(u => (
+                        <li key={u.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-surface-2">
+                          <div className="relative">
+                            <img
+                              src={u.avatar_url || getAvatarUrl(u.username)}
+                              alt={u.display_name}
+                              className="w-10 h-10 rounded-full object-cover border border-line"
+                            />
+                            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-success rounded-full border-2 border-surface-2" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium truncate">{u.display_name}</div>
+                            <div className="text-xs text-ink-3 truncate font-mono">{u.username}#{u.user_discriminator || '0000'}</div>
+                          </div>
                           <button
-                            onClick={() => handleRejectInvite(invite.id)}
-                            className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded transition-colors"
+                            onClick={() => handleSendFriendRequest(u)}
+                            disabled={sendingRequestTo === u.id}
+                            className="btn-primary py-1.5 px-3 text-xs"
                           >
-                            Decline
+                            {sendingRequestTo === u.id ? 'Sending…' : 'Add'}
                           </button>
-                        </div>
-                      </div>
-                      {invite.room_data && (
-                        <div className="bg-gray-600 rounded p-3 text-sm">
-                          <p className="text-gray-300">Current activity: {invite.room_data.activity || 'Watching together'}</p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+                        </li>
+                      ))}
+                    </ul>
+                  )
+                )}
+
+                {activeTab === 'requests' && (
+                  pendingRequests.length === 0 ? (
+                    <EmptyState icon="bi-envelope" title="No pending requests" hint="You're all caught up." />
+                  ) : (
+                    <ul className="space-y-2">
+                      {pendingRequests.map(r => (
+                        <li key={r.id} className="flex items-center gap-3 p-3 rounded-xl bg-surface-2">
+                          <img
+                            src={r.from_user.avatar_url || getAvatarUrl(r.from_user.username)}
+                            alt={r.from_user.display_name}
+                            className="w-10 h-10 rounded-full object-cover border border-line"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium truncate">{r.from_user.display_name}</div>
+                            <div className="text-xs text-ink-3 truncate font-mono">{r.from_user.username}#{r.from_user.user_discriminator || '0000'}</div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={() => handleAcceptRequest(r.id)} className="btn-primary py-1.5 px-3 text-xs">Accept</button>
+                            <button onClick={() => handleRejectRequest(r.id)} className="btn-ghost py-1.5 px-3 text-xs">Decline</button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )
+                )}
+
+                {activeTab === 'invites' && (
+                  pendingInvites.length === 0 ? (
+                    <EmptyState icon="bi-door-open" title="No room invites" hint="Invites from friends will show here." />
+                  ) : (
+                    <ul className="space-y-2">
+                      {pendingInvites.map(i => (
+                        <li key={i.id} className="p-3 rounded-xl bg-surface-2">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={i.from_user.avatar_url || getAvatarUrl(i.from_user.username)}
+                              alt={i.from_user.display_name}
+                              className="w-10 h-10 rounded-full object-cover border border-line"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium truncate">
+                                {i.from_user.display_name} invited you
+                              </div>
+                              <div className="text-xs text-ink-3 truncate">
+                                Room <span className="font-mono">{i.room_code}</span> · {new Date(i.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => handleAcceptInvite(i.id, i.room_code)} className="btn-primary py-1.5 px-3 text-xs">Join</button>
+                              <button onClick={() => handleRejectInvite(i.id)} className="btn-ghost py-1.5 px-3 text-xs">Decline</button>
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )
+                )}
+              </div>
             </div>
-          )}
-        </div>
+          </div>
+        </main>
       </div>
     </>
+  )
+}
+
+function EmptyState({ icon, title, hint, actionLabel, onAction }) {
+  return (
+    <div className="text-center py-10">
+      <div className="w-12 h-12 mx-auto rounded-2xl bg-surface-3 border border-line grid place-items-center mb-3">
+        <i className={`bi ${icon} text-xl text-ink-3`} />
+      </div>
+      <h3 className="font-medium">{title}</h3>
+      <p className="text-ink-3 text-sm mt-1">{hint}</p>
+      {actionLabel && (
+        <button onClick={onAction} className="btn-secondary mt-4 py-1.5 text-xs">{actionLabel}</button>
+      )}
+    </div>
   )
 }

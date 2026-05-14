@@ -8,111 +8,115 @@ export default function InviteFriends({ roomCode, roomData, isVisible, onClose }
   const [success, setSuccess] = useState({})
   const [error, setError] = useState('')
 
-  const handleInvite = async (friendId, friendName) => {
+  if (!isVisible) return null
+
+  const onlineFriends = friends.filter(f => f.is_online)
+  const offlineFriends = friends.filter(f => !f.is_online)
+
+  const handleInvite = async (friendId) => {
     setLoading(prev => ({ ...prev, [friendId]: true }))
     setError('')
-
     const { error } = await sendRoomInvite(friendId, roomCode, roomData)
-    
-    if (error) {
-      setError(error.message)
-    } else {
+    if (error) setError(error.message)
+    else {
       setSuccess(prev => ({ ...prev, [friendId]: true }))
-      setTimeout(() => {
-        setSuccess(prev => ({ ...prev, [friendId]: false }))
-      }, 3000)
+      setTimeout(() => setSuccess(prev => ({ ...prev, [friendId]: false })), 3000)
     }
-    
     setLoading(prev => ({ ...prev, [friendId]: false }))
   }
 
-  if (!isVisible) return null
-
-  const onlineFriends = friends.filter(friend => friend.is_online)
-
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-800 rounded-xl max-w-md w-full max-h-[80vh] overflow-hidden border border-gray-600">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-purple-600 to-pink-600 p-4 flex items-center justify-between">
-          <h3 className="text-white font-bold text-lg">Invite Friends to Room</h3>
-          <button
-            onClick={onClose}
-            className="text-white hover:text-gray-300 transition-colors"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in-up"
+      onClick={onClose}
+    >
+      <div
+        className="surface-raised w-full sm:max-w-md max-h-[85vh] flex flex-col rounded-t-2xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-line">
+          <div>
+            <h3 className="font-semibold">Invite friends</h3>
+            <p className="text-xs text-ink-3 mt-0.5">
+              Room <span className="font-mono">{roomCode}</span>
+            </p>
+          </div>
+          <button onClick={onClose} className="btn-ghost px-2" aria-label="Close">
+            <i className="bi bi-x-lg" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-4">
-          <div className="mb-4">
-            <p className="text-gray-300 text-sm">Room Code: <span className="font-mono bg-gray-700 px-2 py-1 rounded">{roomCode}</span></p>
-          </div>
-
+        <div className="p-4 overflow-y-auto scroll-thin">
           {error && (
-            <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-3 mb-4">
-              <p className="text-red-200 text-sm">{error}</p>
+            <div className="mb-3 p-2.5 rounded-xl bg-danger-soft border border-danger/30 text-danger text-sm">
+              {error}
             </div>
           )}
 
-          {onlineFriends.length === 0 ? (
-            <div className="text-center py-8">
-              <div className="text-4xl mb-3">😔</div>
-              <p className="text-gray-400">No online friends to invite</p>
-              <p className="text-gray-500 text-sm mt-1">Friends need to be online to receive invites</p>
+          {friends.length === 0 ? (
+            <div className="text-center py-10">
+              <i className="bi bi-people text-3xl text-ink-3" />
+              <p className="text-ink-2 text-sm mt-2">No friends yet</p>
+              <p className="text-ink-3 text-xs mt-1">Add friends to invite them to your rooms.</p>
             </div>
           ) : (
-            <div className="space-y-3 max-h-96 overflow-y-auto">
-              <h4 className="text-white font-medium mb-3">Online Friends ({onlineFriends.length})</h4>
-              {onlineFriends.map((friend) => (
-                <div key={friend.id} className="bg-gray-700 rounded-lg p-3 flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="relative">
-                      <img
-                        src={friend.avatar_url || getAvatarUrl(friend.username)}
-                        alt={friend.display_name}
-                        className="w-10 h-10 rounded-full border-2 border-purple-400"
-                      />
-                      <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-400 rounded-full border-2 border-gray-700"></div>
-                    </div>
-                    <div>
-                      <p className="text-white font-medium">{friend.display_name}</p>
-                      <p className="text-gray-400 text-sm">@{friend.username}</p>
-                    </div>
+            <>
+              {onlineFriends.length > 0 && (
+                <>
+                  <div className="section-title mb-2 px-1">Online · {onlineFriends.length}</div>
+                  <div className="space-y-1 mb-4">
+                    {onlineFriends.map((f) => (
+                      <FriendRow key={f.id} friend={f} online
+                        onInvite={() => handleInvite(f.id)}
+                        loading={loading[f.id]} success={success[f.id]} />
+                    ))}
                   </div>
-                  
-                  <button
-                    onClick={() => handleInvite(friend.id, friend.display_name)}
-                    disabled={loading[friend.id] || success[friend.id]}
-                    className={`px-4 py-2 rounded-lg font-medium transition-colors text-sm ${
-                      success[friend.id]
-                        ? 'bg-green-600 text-white cursor-default'
-                        : loading[friend.id]
-                        ? 'bg-gray-600 text-gray-300 cursor-not-allowed'
-                        : 'bg-purple-600 hover:bg-purple-700 text-white'
-                    }`}
-                  >
-                    {success[friend.id] ? '✓ Invited' : loading[friend.id] ? 'Sending...' : 'Invite'}
-                  </button>
-                </div>
-              ))}
-            </div>
+                </>
+              )}
+              {offlineFriends.length > 0 && (
+                <>
+                  <div className="section-title mb-2 px-1">Offline · {offlineFriends.length}</div>
+                  <div className="space-y-1">
+                    {offlineFriends.map((f) => (
+                      <FriendRow key={f.id} friend={f}
+                        onInvite={() => handleInvite(f.id)}
+                        loading={loading[f.id]} success={success[f.id]} />
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="bg-gray-750 border-t border-gray-600 p-4">
-          <button
-            onClick={onClose}
-            className="w-full bg-gray-600 hover:bg-gray-700 text-white py-2 rounded-lg transition-colors"
-          >
-            Close
-          </button>
-        </div>
       </div>
+    </div>
+  )
+}
+
+function FriendRow({ friend, online, onInvite, loading, success }) {
+  return (
+    <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-surface-2 transition">
+      <div className="relative">
+        <img
+          src={friend.avatar_url || getAvatarUrl(friend.username)}
+          alt={friend.display_name}
+          className="w-9 h-9 rounded-full object-cover border border-line"
+        />
+        {online && (
+          <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-success rounded-full border-2 border-surface-3" />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium truncate">{friend.display_name}</div>
+        <div className="text-xs text-ink-3 truncate">@{friend.username}</div>
+      </div>
+      <button
+        onClick={onInvite}
+        disabled={loading || success}
+        className={success ? 'chip chip-success' : 'btn-primary py-1.5 px-3 text-xs'}
+      >
+        {success ? (<><i className="bi bi-check2" /> Invited</>) : loading ? 'Sending…' : 'Invite'}
+      </button>
     </div>
   )
 }

@@ -3,7 +3,7 @@
 ## Step 1: Run Database Schema
 1. Go to your Supabase project dashboard: https://yvfosycqynpccrrgjyeu.supabase.co
 2. Navigate to SQL Editor
-3. Copy and paste the contents of `supabase-schema.sql` into the SQL Editor
+3. Copy and paste the contents of `../supabase/supabase-schema.sql` into the SQL Editor
 4. Click "Run" to execute the SQL commands
 
 This will create:

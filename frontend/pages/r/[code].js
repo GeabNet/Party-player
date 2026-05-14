@@ -1,66 +1,41 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
+import Link from 'next/link';
 import { io } from 'socket.io-client';
 import ServerStatus from '../../components/ServerStatus';
-import VoiceChat from '../../components/ModernVoiceChat';
-import VideoChat from '../../components/VideoChat';
 import InviteFriends from '../../components/InviteFriends';
-import Canvas from '../../components/Canvas';
+import RoomInviteNotifications from '../../components/RoomInviteNotifications';
 import { useAuth } from '../../contexts/AuthContext';
 import { getAvatarUrl, getYouTubeApiUrl } from '../../utils/urls';
 
-/**
- * Room page component - main watch party interface
- * Handles video synchronization, chat, and room management
- */
 export default function Room() {
   const router = useRouter();
   const { code } = router.query;
   const { user, userProfile, loading, sessionRestored, sendFriendRequest } = useAuth();
-  
-  // Socket and room state
+
+  /* ----------------------------- connection state ---------------------------- */
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [roomData, setRoomData] = useState(null);
   const [isHost, setIsHost] = useState(false);
   const [users, setUsers] = useState([]);
 
-  // Video state
+  /* ------------------------------- video state ------------------------------- */
   const [videoUrl, setVideoUrl] = useState('');
   const [currentVideo, setCurrentVideo] = useState(null);
   const [isPlayerReady, setIsPlayerReady] = useState(false);
+  const [isVideoLoading, setIsVideoLoading] = useState(false);
   const playerRef = useRef(null);
-  const [recommendations, setRecommendations] = useState([]);
 
-  // Chat state
+  /* -------------------------------- chat state ------------------------------- */
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const messagesEndRef = useRef(null);
+  const chatInputRef = useRef(null);
 
-  // UI state
-  const [error, setError] = useState('');
-  const [isVideoLoading, setIsVideoLoading] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
-  const [showInviteFriends, setShowInviteFriends] = useState(false);
-  const [showYouTubeSection, setShowYouTubeSection] = useState(false);
-  const [showHamburgerMenu, setShowHamburgerMenu] = useState(false);
-  const [hamburgerTab, setHamburgerTab] = useState('apps'); // 'apps' or 'chat'
-  const [showVideoChat, setShowVideoChat] = useState(false);
-  const [showChat, setShowChat] = useState(false);
-  const [showCanvas, setShowCanvas] = useState(false);
-
-  /**
-   * Redirect to login if not authenticated
-   */
-  useEffect(() => {
-    if (sessionRestored && !loading && !user) {
-      router.push('/login');
-    }
-  }, [user, loading, sessionRestored, router]);
-
-  // Voice chat state (extracted from VoiceChat component)
+  /* ------------------------------- voice state ------------------------------- */
   const [isVoiceChatEnabled, setIsVoiceChatEnabled] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
@@ -71,439 +46,187 @@ export default function Room() {
   const peersRef = useRef({});
   const audioElementsRef = useRef({});
 
-  // Voice chat functions (simplified versions)
-  const initializeVoiceChat = async () => {
-    try {
-      setIsConnecting(true);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: false
-      });
-      localStreamRef.current = stream;
-      stream.getAudioTracks().forEach(track => track.enabled = !isMuted);
-      socket.emit('join-voice-chat', { roomCode: code, username: userProfile.display_name });
-      setIsVoiceChatEnabled(true);
-      setIsConnecting(false);
-    } catch (error) {
-      console.error('Error accessing microphone:', error);
-      setIsConnecting(false);
-      alert('Could not access microphone. Please check your permissions and try again.');
-    }
-  };
-
-  const leaveVoiceChat = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => track.stop());
-      localStreamRef.current = null;
-    }
-    Object.values(peersRef.current).forEach(peer => peer.destroy());
-    peersRef.current = {};
-    Object.values(audioElementsRef.current).forEach(audio => {
-      audio.pause();
-      audio.srcObject = null;
-    });
-    audioElementsRef.current = {};
-    socket.emit('leave-voice-chat', { roomCode: code });
-    setIsVoiceChatEnabled(false);
-  };
-
-  const toggleMute = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach(track => {
-        track.enabled = isMuted;
-      });
-      setIsMuted(!isMuted);
-      socket.emit(isMuted ? 'user-unmuted' : 'user-muted', { roomCode: code });
-    }
-  };
-
-  const toggleDeafen = () => {
-    setIsDeafened(!isDeafened);
-    Object.values(audioElementsRef.current).forEach(audio => {
-      audio.muted = !isDeafened;
-    });
-  };
-
-  // Voice chat peer functions
-  const createPeer = (userToCall, callerID, stream) => {
-    const Peer = require('simple-peer');
-    const peer = new Peer({
-      initiator: true,
-      trickle: false,
-      stream,
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-        ]
-      }
-    });
-
-    peer.on('signal', signal => {
-      socket.emit('sending-signal', { userToCall, callerID, signal });
-    });
-
-    peer.on('stream', remoteStream => {
-      const audio = new Audio();
-      audio.srcObject = remoteStream;
-      audio.autoplay = true;
-      audio.playsInline = true;
-      audio.muted = isDeafened;
-      audio.volume = 1.0;
-      audio.style.display = 'none';
-      document.body.appendChild(audio);
-      audioElementsRef.current[userToCall] = audio;
-    });
-
-    return peer;
-  };
-
-  const addPeer = (incomingSignal, callerID, stream) => {
-    const Peer = require('simple-peer');
-    const peer = new Peer({
-      initiator: false,
-      trickle: false,
-      stream,
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-        ]
-      }
-    });
-
-    peer.on('signal', signal => {
-      socket.emit('returning-signal', { signal, callerID });
-    });
-
-    peer.on('stream', remoteStream => {
-      const audio = new Audio();
-      audio.srcObject = remoteStream;
-      audio.autoplay = true;
-      audio.playsInline = true;
-      audio.muted = isDeafened;
-      audio.volume = 1.0;
-      audio.style.display = 'none';
-      document.body.appendChild(audio);
-      audioElementsRef.current[callerID] = audio;
-    });
-
-    peer.signal(incomingSignal);
-    return peer;
-  };
-
-  // Context menu state
+  /* --------------------------------- UI state -------------------------------- */
+  const [error, setError] = useState('');
+  const [showInviteFriends, setShowInviteFriends] = useState(false);
+  const [activeTab, setActiveTab] = useState('chat'); // chat | people | voice
   const [contextMenu, setContextMenu] = useState({ show: false, x: 0, y: 0, targetUser: null });
   const [friendRequestLoading, setFriendRequestLoading] = useState(false);
+  const [copyFlash, setCopyFlash] = useState(false);
 
-  /**
-   * Load YouTube IFrame API
-   */
+  /* ----------------------------- auth redirect ----------------------------- */
   useEffect(() => {
-    if (typeof window !== 'undefined' && !window.YT) {
-      console.log('Loading YouTube IFrame API...');
+    if (sessionRestored && !loading && !user) {
+      router.push('/login');
+    }
+  }, [user, loading, sessionRestored, router]);
 
-      // Add API script
-      const tag = document.createElement('script');
-      tag.src = getYouTubeApiUrl();
-      tag.async = true;
-      tag.onerror = () => {
-        console.warn('Failed to load YouTube API script');
-        // Try loading again after a delay
-        setTimeout(() => {
-          if (!window.YT && !isPlayerReady) {
-            console.log('Retrying YouTube API load...');
-            const retryTag = document.createElement('script');
-            retryTag.src = getYouTubeApiUrl();
-            retryTag.async = true;
-            document.head.appendChild(retryTag);
-          }
-        }, 3000);
-      };
+  /* ------------------------- youtube iframe API load ------------------------- */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
 
-      const firstScriptTag = document.getElementsByTagName('script')[0];
-      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-
-      // Set up callback
-      window.onYouTubeIframeAPIReady = () => {
-        console.log('YouTube API loaded successfully');
-        setIsPlayerReady(true);
-        setError(''); // Clear any previous errors
-      };
-
-      // Fallback: check if API is already loaded (longer timeout)
-      setTimeout(() => {
-        if (window.YT && window.YT.Player && !isPlayerReady) {
-          console.log('YouTube API was already loaded');
-          setIsPlayerReady(true);
-          setError('');
-        } else if (!isPlayerReady) {
-          console.warn('YouTube API is taking longer to load, but videos should still work');
-          setError('YouTube API is loading slowly. Videos may take a moment to start.');
-          // Keep checking every 5 seconds
-          const checkInterval = setInterval(() => {
-            if (window.YT && window.YT.Player && !isPlayerReady) {
-              console.log('YouTube API loaded after delay');
-              setIsPlayerReady(true);
-              setError('');
-              clearInterval(checkInterval);
-            }
-          }, 5000);
-        }
-      }, 10000); // Increased timeout to 10 seconds
-    } else if (window.YT && window.YT.Player) {
-      console.log('YouTube API already available');
+    if (window.YT && window.YT.Player) {
       setIsPlayerReady(true);
-      setError('');
+      return;
     }
 
-    // Check if mobile
-    setIsMobile(window.innerWidth < 768);
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    
-    // Close context menu when clicking elsewhere
-    const handleClickOutside = () => setContextMenu({ show: false, x: 0, y: 0, targetUser: null });
-    document.addEventListener('click', handleClickOutside);
-    
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      document.removeEventListener('click', handleClickOutside);
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    const tag = document.createElement('script');
+    tag.src = getYouTubeApiUrl();
+    tag.async = true;
+    const firstScript = document.getElementsByTagName('script')[0];
+    firstScript.parentNode.insertBefore(tag, firstScript);
 
-  /**
-   * Load video in YouTube player
-   */
+    window.onYouTubeIframeAPIReady = () => setIsPlayerReady(true);
+
+    const fallback = setTimeout(() => {
+      if (window.YT && window.YT.Player) setIsPlayerReady(true);
+    }, 8000);
+    return () => clearTimeout(fallback);
+  }, []);
+
+  /* --------------------------- close context menu --------------------------- */
+  useEffect(() => {
+    const close = () => setContextMenu({ show: false, x: 0, y: 0, targetUser: null });
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, []);
+
+  /* ----------------------------- video player ------------------------------ */
   const loadVideoInPlayer = useCallback((videoId) => {
-    console.log('loadVideoInPlayer called with videoId:', videoId);
-
     if (!window.YT || !window.YT.Player) {
-      console.error('YouTube API not ready, cannot load video');
-      setError('YouTube API not loaded. Please refresh the page and try again.');
+      setError('YouTube API not loaded yet. Please refresh.');
       setIsVideoLoading(false);
       return;
     }
+    const el = document.getElementById('youtube-player');
+    if (!el) return;
 
-    // Check if youtube-player element exists
-    const playerElement = document.getElementById('youtube-player');
-    console.log('Player element exists:', !!playerElement);
+    if (playerRef.current) playerRef.current.destroy();
 
-    if (!playerElement) {
-      console.error('YouTube player element not found');
-      return;
-    }
-
-    // Destroy existing player
-    if (playerRef.current) {
-      console.log('Destroying existing player');
-      playerRef.current.destroy();
-    }
-
-    console.log('Creating new YouTube player...');
-
-    // Create new player
     playerRef.current = new window.YT.Player('youtube-player', {
       height: '100%',
       width: '100%',
-      videoId: videoId,
+      videoId,
       playerVars: {
         autoplay: 0,
-        controls: isHost ? 1 : 0, // Only host gets controls
+        controls: isHost ? 1 : 0,
         disablekb: !isHost ? 1 : 0,
         fs: 1,
         rel: 0,
         showinfo: 0,
-        modestbranding: 1
+        modestbranding: 1,
       },
       events: {
-        onReady: (event) => {
-          console.log('YouTube player ready for video:', videoId);
-        },
         onStateChange: (event) => {
-          console.log('Player state changed:', event.data);
-          if (!isHost) return; // Only host can trigger sync events
-
+          if (!isHost) return;
           const currentTime = event.target.getCurrentTime();
-
           if (event.data === window.YT.PlayerState.PLAYING) {
             socket?.emit('video-play', { roomCode: code.toUpperCase(), currentTime });
           } else if (event.data === window.YT.PlayerState.PAUSED) {
             socket?.emit('video-pause', { roomCode: code.toUpperCase(), currentTime });
           }
         },
-        onError: (event) => {
-          console.error('YouTube player error:', event.data);
-          setError(`YouTube player error: ${event.data}`);
-        }
-      }
+        onError: (event) => setError(`YouTube error: ${event.data}`),
+      },
     });
-  }, [isHost, socket, code, setError, setIsVideoLoading]);
+  }, [isHost, socket, code]);
 
-  /**
-   * Initialize socket connection and join room
-   */
+  /* ----------------------------- socket setup ------------------------------ */
   useEffect(() => {
     if (!code || !user || !userProfile) return;
-
-    // Reset initial load flag when joining a new room
     setIsInitialLoad(true);
 
-    console.log('Creating Socket.IO connection...');
-
-    // Create socket with stable configuration
-    const socketInstance = io(process.env.NEXT_PUBLIC_SERVER_URL, {
+    const s = io(process.env.NEXT_PUBLIC_SERVER_URL, {
       transports: ['websocket', 'polling'],
       timeout: 20000,
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      randomizationFactor: 0.5
     });
+    setSocket(s);
 
-    setSocket(socketInstance);
+    const userData = {
+      roomCode: code.toUpperCase(),
+      username: userProfile.display_name,
+      avatar: userProfile.avatar_url,
+      isAuthenticated: true,
+      userId: user.id,
+      userProfile,
+    };
 
-    socketInstance.on('connect', () => {
+    s.on('connect', () => {
       setIsConnected(true);
-      console.log('Connected to server, joining room:', code);
-      
-      // Prepare user data for room join
-      const userData = {
-        roomCode: code.toUpperCase(),
-        username: userProfile.display_name,
-        avatar: userProfile.avatar_url,
-        isAuthenticated: true,
-        userId: user.id,
-        userProfile: userProfile
-      };
-      
-      socketInstance.emit('join-room', userData);
+      s.emit('join-room', userData);
     });
-
-    socketInstance.on('disconnect', (reason) => {
-      setIsConnected(false);
-      console.log('Disconnected from server:', reason);
-    });
-
-    socketInstance.on('connect_error', (error) => {
-      console.error('Connection error:', error);
-      setError('Connection failed. Retrying...');
-    });
-
-    socketInstance.on('reconnect', (attemptNumber) => {
-      console.log('Reconnected after', attemptNumber, 'attempts');
+    s.on('disconnect', () => setIsConnected(false));
+    s.on('connect_error', () => setError('Connection failed. Retrying…'));
+    s.on('reconnect', () => {
       setError('');
-      
-      // Rejoin room after reconnection with updated user data
-      const userData = {
-        roomCode: code.toUpperCase(),
-        username: userProfile.display_name,
-        avatar: userProfile.avatar_url,
-        isAuthenticated: true,
-        userId: user.id,
-        userProfile: userProfile
-      };
-      
-      socketInstance.emit('join-room', userData);
+      s.emit('join-room', userData);
     });
 
-    socketInstance.on('reconnect_error', (error) => {
-      console.error('Reconnection failed:', error);
-    });
-
-    socketInstance.on('joined-room', (data) => {
-      console.log('Joined room data:', data);
-      console.log('Users with avatars:', data.users?.map(u => ({ username: u.username, hasAvatar: !!u.avatar })));
+    s.on('joined-room', (data) => {
       setRoomData(data);
       setIsHost(data.isHost);
       setCurrentVideo(data.currentVideo);
       setMessages(data.messages || []);
       setUsers(data.users || []);
-      setError(''); // Clear any connection errors
-      setIsInitialLoad(false); // Mark that initial load is complete
+      setError('');
+      setIsInitialLoad(false);
     });
 
-    socketInstance.on('error', (data) => {
-      console.error('Socket error:', data.message);
+    s.on('error', (data) => {
       setError(data.message);
-      // If room not found, redirect to home after 3 seconds
       if (data.message === 'Room not found') {
-        setTimeout(() => {
-          router.push('/');
-        }, 3000);
+        setTimeout(() => router.push('/'), 2500);
       }
     });
 
-    // Video events
-    socketInstance.on('video-loaded', (data) => {
+    // video
+    s.on('video-loaded', (data) => {
       setCurrentVideo({ videoId: data.videoId, title: data.title });
       setIsVideoLoading(false);
       loadVideoInPlayer(data.videoId);
     });
-
-    socketInstance.on('video-play', (data) => {
-      if (playerRef.current && playerRef.current.seekTo && playerRef.current.playVideo) {
+    s.on('video-play', (data) => {
+      if (playerRef.current?.seekTo && playerRef.current?.playVideo) {
         playerRef.current.seekTo(data.time, true);
         playerRef.current.playVideo();
       }
     });
-
-    socketInstance.on('video-pause', (data) => {
-      if (playerRef.current && playerRef.current.seekTo && playerRef.current.pauseVideo) {
+    s.on('video-pause', (data) => {
+      if (playerRef.current?.seekTo && playerRef.current?.pauseVideo) {
         playerRef.current.seekTo(data.time, true);
         playerRef.current.pauseVideo();
       }
     });
-
-    socketInstance.on('video-seek', (data) => {
-      if (playerRef.current && playerRef.current.seekTo) {
-        playerRef.current.seekTo(data.time, true);
-      }
+    s.on('video-seek', (data) => {
+      if (playerRef.current?.seekTo) playerRef.current.seekTo(data.time, true);
     });
 
-    // Chat events
-    socketInstance.on('new-message', (message) => {
-      console.log('New message received:', message);
-      setMessages(prev => [...prev, message]);
-    });
+    // chat
+    s.on('new-message', (message) => setMessages((prev) => [...prev, message]));
 
-    // User events
-    socketInstance.on('user-joined', (data) => {
-      console.log('User joined:', data.user);
-      setUsers(prev => [...prev, data.user]);
+    // users
+    s.on('user-joined', (data) => setUsers((prev) => [...prev, data.user]));
+    s.on('user-left', (data) => {
+      setUsers((prev) => prev.filter((u) => u.id !== data.user.id));
+      if (data.newHost) setIsHost(data.newHost.id === s.id);
     });
+    s.on('new-host', (data) => setIsHost(data.newHost.id === s.id));
 
-    socketInstance.on('user-left', (data) => {
-      console.log('User left:', data.user);
-      setUsers(prev => prev.filter(u => u.id !== data.user.id));
-      if (data.newHost) {
-        setIsHost(data.newHost.id === socketInstance.id);
-      }
-    });
-
-    socketInstance.on('new-host', (data) => {
-      setIsHost(data.newHost.id === socketInstance.id);
-    });
-
-    // Voice chat events
-    socketInstance.on('voice-chat-users', (users) => {
-      console.log('Voice chat users updated:', users);
-      setVoiceUsers(users || []);
-    });
-
-    socketInstance.on('user-joined-voice', (data) => {
-      console.log('User joined voice:', data);
-      setVoiceUsers(prev => [...new Set([...prev, data.callerID])]);
-      if (localStreamRef.current && data.callerID !== socketInstance.id) {
-        const peer = createPeer(data.callerID, socketInstance.id, localStreamRef.current);
+    // voice
+    s.on('voice-chat-users', (vu) => setVoiceUsers(vu || []));
+    s.on('user-joined-voice', (data) => {
+      setVoiceUsers((prev) => [...new Set([...prev, data.callerID])]);
+      if (localStreamRef.current && data.callerID !== s.id) {
+        const peer = createPeer(data.callerID, s.id, localStreamRef.current, s);
         peersRef.current[data.callerID] = peer;
       }
     });
-
-    socketInstance.on('user-left-voice', (data) => {
-      console.log('User left voice:', data);
-      setVoiceUsers(prev => prev.filter(id => id !== data.callerID));
+    s.on('user-left-voice', (data) => {
+      setVoiceUsers((prev) => prev.filter((id) => id !== data.callerID));
+      setMutedUsers((prev) => prev.filter((id) => id !== data.callerID));
       if (peersRef.current[data.callerID]) {
         peersRef.current[data.callerID].destroy();
         delete peersRef.current[data.callerID];
@@ -514,270 +237,243 @@ export default function Room() {
         delete audioElementsRef.current[data.callerID];
       }
     });
-
-    socketInstance.on('user-left-voice', (data) => {
-      console.log('User left voice:', data);
-      setVoiceUsers(prev => prev.filter(id => id !== data.callerID));
-      setMutedUsers(prev => prev.filter(id => id !== data.callerID));
-    });
-
-    // Voice chat peer signaling
-    socketInstance.on('receiving-signal', (payload) => {
+    s.on('user-muted', (data) => setMutedUsers((prev) => [...new Set([...prev, data.userId])]));
+    s.on('user-unmuted', (data) => setMutedUsers((prev) => prev.filter((id) => id !== data.userId)));
+    s.on('receiving-signal', (payload) => {
       if (localStreamRef.current) {
-        const peer = addPeer(payload.signal, payload.callerID, localStreamRef.current);
+        const peer = addPeer(payload.signal, payload.callerID, localStreamRef.current, s);
         peersRef.current[payload.callerID] = peer;
       }
     });
-
-    socketInstance.on('receiving-returned-signal', (payload) => {
+    s.on('receiving-returned-signal', (payload) => {
       const item = peersRef.current[payload.id];
-      if (item) {
-        item.signal(payload.signal);
-      }
+      if (item) item.signal(payload.signal);
     });
 
     return () => {
-      console.log('Cleaning up socket connection');
-      socketInstance.disconnect();
-      setIsInitialLoad(true); // Reset for next room join
+      s.disconnect();
+      setIsInitialLoad(true);
     };
-  }, [code, user, userProfile]); // Only depend on code and user to prevent unnecessary reconnections
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, user, userProfile]);
 
-  /**
-   * Auto-scroll chat to bottom (only for new messages, not initial load)
-   */
+  /* ------------------------ auto-scroll new messages ------------------------ */
   useEffect(() => {
     if (!isInitialLoad && messages.length > 0) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, isInitialLoad]);
 
-  /**
-   * Create YouTube player when ready and video is loaded
-   */
+  /* ----------------------- recreate player when ready ---------------------- */
   useEffect(() => {
-    if (isPlayerReady && currentVideo && currentVideo.videoId && !playerRef.current) {
+    if (isPlayerReady && currentVideo?.videoId && !playerRef.current) {
       loadVideoInPlayer(currentVideo.videoId);
     }
   }, [isPlayerReady, currentVideo, loadVideoInPlayer]);
 
-  /**
-   * Copy room code to clipboard
-   */
-  const copyRoomCode = async () => {
+  /* ---------------------------- voice chat funcs ---------------------------- */
+  const createPeer = (userToCall, callerID, stream, s) => {
+    const Peer = require('simple-peer');
+    const peer = new Peer({
+      initiator: true,
+      trickle: false,
+      stream,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ],
+      },
+    });
+    peer.on('signal', (signal) => s.emit('sending-signal', { userToCall, callerID, signal }));
+    peer.on('stream', (remoteStream) => {
+      const audio = new Audio();
+      audio.srcObject = remoteStream;
+      audio.autoplay = true;
+      audio.playsInline = true;
+      audio.muted = isDeafened;
+      audio.style.display = 'none';
+      document.body.appendChild(audio);
+      audioElementsRef.current[userToCall] = audio;
+    });
+    return peer;
+  };
+
+  const addPeer = (incomingSignal, callerID, stream, s) => {
+    const Peer = require('simple-peer');
+    const peer = new Peer({
+      initiator: false,
+      trickle: false,
+      stream,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ],
+      },
+    });
+    peer.on('signal', (signal) => s.emit('returning-signal', { signal, callerID }));
+    peer.on('stream', (remoteStream) => {
+      const audio = new Audio();
+      audio.srcObject = remoteStream;
+      audio.autoplay = true;
+      audio.playsInline = true;
+      audio.muted = isDeafened;
+      audio.style.display = 'none';
+      document.body.appendChild(audio);
+      audioElementsRef.current[callerID] = audio;
+    });
+    peer.signal(incomingSignal);
+    return peer;
+  };
+
+  const initializeVoice = async () => {
     try {
-      await navigator.clipboard.writeText(code.toUpperCase());
-      // Show temporary success feedback
-      const button = document.querySelector('[data-copy-button]');
-      if (button) {
-        const originalText = button.textContent;
-        button.textContent = '✓ Copied!';
-        button.style.backgroundColor = '#10b981';
-        setTimeout(() => {
-          button.textContent = originalText;
-          button.style.backgroundColor = '';
-        }, 2000);
-      }
+      setIsConnecting(true);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false,
+      });
+      localStreamRef.current = stream;
+      stream.getAudioTracks().forEach((t) => (t.enabled = !isMuted));
+      socket.emit('join-voice-chat', { roomCode: code, username: userProfile.display_name });
+      setIsVoiceChatEnabled(true);
     } catch (err) {
-      console.error('Failed to copy room code:', err);
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = code.toUpperCase();
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
+      console.error('Mic access denied:', err);
+      setError('Microphone access denied. Check permissions.');
+    } finally {
+      setIsConnecting(false);
     }
   };
 
-  /**
-   * Load a new video (host only)
-   */
+  const leaveVoice = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((t) => t.stop());
+      localStreamRef.current = null;
+    }
+    Object.values(peersRef.current).forEach((p) => p.destroy());
+    peersRef.current = {};
+    Object.values(audioElementsRef.current).forEach((a) => {
+      a.pause();
+      a.srcObject = null;
+    });
+    audioElementsRef.current = {};
+    socket?.emit('leave-voice-chat', { roomCode: code });
+    setIsVoiceChatEnabled(false);
+  };
+
+  const toggleMute = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = isMuted));
+      setIsMuted((v) => !v);
+      socket?.emit(isMuted ? 'user-unmuted' : 'user-muted', { roomCode: code });
+    }
+  };
+
+  const toggleDeafen = () => {
+    setIsDeafened((v) => !v);
+    Object.values(audioElementsRef.current).forEach((a) => {
+      a.muted = !isDeafened;
+    });
+  };
+
+  /* ----------------------------- chat handlers ----------------------------- */
+  const sendMessage = () => {
+    const text = newMessage.trim();
+    if (!text || !socket) return;
+    socket.emit('send-message', { roomCode: code.toUpperCase(), message: text });
+    setNewMessage('');
+    chatInputRef.current?.focus();
+  };
+
+  /* ---------------------------- video handlers ----------------------------- */
   const loadVideo = () => {
     if (!isHost) {
-      setError('Only the host can load videos');
+      setError('Only the host can load videos.');
       return;
     }
-
-    if (!videoUrl.trim()) {
-      setError('Please enter a YouTube URL');
+    const trimmed = videoUrl.trim();
+    if (!trimmed) {
+      setError('Paste a YouTube URL first.');
       return;
     }
-
     setIsVideoLoading(true);
     setError('');
-    
-    socket.emit('load-video', { 
-      roomCode: code.toUpperCase(), 
-      videoUrl: videoUrl.trim() 
-    });
-    
+    socket.emit('load-video', { roomCode: code.toUpperCase(), videoUrl: trimmed });
     setVideoUrl('');
   };
 
-  /**
-   * Send chat message
-   */
-  const sendMessage = () => {
-    if (!newMessage.trim() || !socket) return;
-
-    socket.emit('send-message', {
-      roomCode: code.toUpperCase(),
-      message: newMessage.trim()
-    });
-
-    setNewMessage('');
-  };
-
-  /**
-   * Get AI recommendations
-   */
-  const getRecommendations = async () => {
-    if (!currentVideo || !currentVideo.videoId) {
-      setError('Load a video first to get recommendations');
-      return;
-    }
-
+  /* ----------------------------- room actions ----------------------------- */
+  const copyRoomCode = async () => {
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_SERVER_URL}/api/recommend?videoId=${currentVideo.videoId}`
-      );
-      const data = await response.json();
-      setRecommendations(data.recommendations || []);
-    } catch (err) {
-      console.error('Error getting recommendations:', err);
-      setError('Failed to get recommendations');
+      await navigator.clipboard.writeText(code.toUpperCase());
+      setCopyFlash(true);
+      setTimeout(() => setCopyFlash(false), 1600);
+    } catch {
+      // ignore
     }
   };
 
-  /**
-   * Load recommended video
-   */
-  const loadRecommendedVideo = (videoId) => {
-    if (!isHost) {
-      setError('Only the host can load videos');
-      return;
-    }
-
-    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    setIsVideoLoading(true);
-    
-    socket.emit('load-video', { 
-      roomCode: code.toUpperCase(), 
-      videoUrl 
-    });
-  };
-
-  /**
-   * Copy room link to clipboard
-   */
-  const copyRoomLink = () => {
-    const roomLink = `${window.location.origin}/r/${code}`;
-    navigator.clipboard.writeText(roomLink).then(() => {
-      // Could show a toast notification here
-      console.log('Room link copied to clipboard');
-    });
-  };
-
-  /**
-   * Handle key press events
-   */
-  const handleKeyPress = (e, action) => {
-    if (e.key === 'Enter') {
-      action();
+  const copyRoomLink = async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/r/${code}`);
+      setCopyFlash(true);
+      setTimeout(() => setCopyFlash(false), 1600);
+    } catch {
+      // ignore
     }
   };
 
-  /**
-   * Handle right-click on user to show context menu
-   */
+  /* --------------------------- right-click handlers -------------------------- */
   const handleUserRightClick = (e, targetUser) => {
     e.preventDefault();
     e.stopPropagation();
-    
-    // Don't show context menu for current user
-    if (targetUser.id === user?.id || targetUser.username === userProfile?.display_name) {
-      return;
-    }
-    
-    setContextMenu({
-      show: true,
-      x: e.pageX,
-      y: e.pageY,
-      targetUser
-    });
+    if (targetUser.id === user?.id) return;
+    setContextMenu({ show: true, x: e.pageX, y: e.pageY, targetUser });
   };
 
-  /**
-   * Send friend request to user
-   */
   const handleSendFriendRequest = async () => {
     if (!contextMenu.targetUser) return;
-    
     setFriendRequestLoading(true);
-    setError(''); // Clear any existing errors
-    
+    setError('');
     try {
-      console.log('Sending friend request to:', contextMenu.targetUser.username, 'with ID:', contextMenu.targetUser.id || contextMenu.targetUser.userId);
-      
-      // Use the correct user ID field
       const targetUserId = contextMenu.targetUser.id || contextMenu.targetUser.userId;
-      if (!targetUserId) {
-        throw new Error('Target user ID not found');
-      }
-      
+      if (!targetUserId) throw new Error('User id missing.');
       const result = await sendFriendRequest(targetUserId);
-      console.log('Friend request result:', result);
-      
-      if (result && result.error) {
-        console.error('Friend request error:', result.error);
-        setError(`Failed to send friend request: ${result.error.message}`);
-      } else if (result && result.success) {
-        console.log('Friend request sent successfully');
-        // Show success message (you could add a toast notification here)
-        console.log('✅ Friend request sent to', contextMenu.targetUser.username);
-      } else {
-        console.warn('Unexpected friend request response:', result);
-        // Assume success if no error and no explicit success flag
-      }
+      if (result?.error) setError(`Friend request failed: ${result.error.message}`);
     } catch (err) {
-      console.error('Friend request exception:', err);
-      setError(`Failed to send friend request: ${err.message}`);
+      setError(`Friend request failed: ${err.message}`);
     } finally {
       setFriendRequestLoading(false);
       setContextMenu({ show: false, x: 0, y: 0, targetUser: null });
     }
   };
 
-  if (!code || !user || !userProfile) {
-    if (loading) {
-      return (
-        <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-          <div className="text-white text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-            <p>Loading...</p>
-          </div>
-        </div>
-      );
-    }
-    
+  const userCount = users.length;
+  const inVoiceCount = voiceUsers.length;
+
+  /* ------------------------- early auth / loading UI ------------------------ */
+  if (loading || !code) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-white text-center">
-          <h1 className="text-2xl mb-4">Access Denied</h1>
-          <p className="mb-4">You must be logged in to access this room.</p>
-          <button 
-            onClick={() => router.push('/login')}
-            className="bg-purple-600 hover:bg-purple-700 px-6 py-3 rounded-lg transition-colors mr-4"
-          >
-            Sign In
-          </button>
-          <button 
-            onClick={() => router.push('/')}
-            className="bg-gray-600 hover:bg-gray-700 px-6 py-3 rounded-lg transition-colors"
-          >
-            Go Home
-          </button>
+      <div className="page flex items-center justify-center">
+        <div className="text-center text-ink-2">
+          <div className="w-10 h-10 mx-auto mb-3 border-2 border-ink-3 border-t-accent rounded-full animate-spin" />
+          <p className="text-sm">Joining room…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user || !userProfile) {
+    return (
+      <div className="page flex items-center justify-center px-4">
+        <div className="surface-card p-8 max-w-md w-full text-center">
+          <h1 className="text-xl font-semibold">Sign in to join</h1>
+          <p className="text-ink-2 mt-2 text-sm">You need an account to enter this room.</p>
+          <div className="flex gap-2 mt-6 justify-center">
+            <button onClick={() => router.push('/login')} className="btn-primary">Sign in</button>
+            <button onClick={() => router.push('/')} className="btn-secondary">Go home</button>
+          </div>
         </div>
       </div>
     );
@@ -786,905 +482,568 @@ export default function Room() {
   return (
     <>
       <Head>
-        <title>Watch Party - Room {code}</title>
-        <meta name="description" content={`Join the watch party in room ${code}`} />
+        <title>Room {code} · Party Player</title>
+        <meta name="theme-color" content="#0A0A0B" />
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#000000" />
       </Head>
 
-      <div className="min-h-screen bg-gray-900 text-white">
+      <div className="page flex flex-col h-screen overflow-hidden">
         <ServerStatus />
-        {/* Header */}
-        <div className="bg-gray-800 border-b border-gray-700 p-4">
-          <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button 
-                onClick={() => router.push('/')}
-                className="text-gray-400 hover:text-white transition-colors"
-              >
-                ← Back
-              </button>
-              <h1 className="text-xl font-bold">Room {code}</h1>
-              {isHost && <span className="bg-purple-600 text-xs px-2 py-1 rounded">HOST</span>}
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              <div className="text-sm text-gray-400">
-                {users.length} user{users.length !== 1 ? 's' : ''} online
-              </div>
-              <button
-                onClick={() => setShowHamburgerMenu(!showHamburgerMenu)}
-                className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"
-                aria-label="Open apps menu"
-              >
-                <i className="bi bi-list text-xl" />
-              </button>
-              <button
-                onClick={copyRoomCode}
-                data-copy-button
-                className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm transition-colors"
-              >
-                📋 Copy Code
-              </button>
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            </div>
-          </div>
-        </div>
+        <RoomInviteNotifications />
 
-        {/* Error Message */}
-        {error && (
-          <div className="bg-red-600 text-white p-3 text-center">
-            {error}
-            <button 
-              onClick={() => setError('')}
-              className="ml-2 text-red-200 hover:text-white"
-            >
-              ×
+        {/* Top bar */}
+        <header className="bg-surface-1/95 backdrop-blur border-b border-line">
+          <div className="px-3 sm:px-5 py-3 flex items-center gap-3">
+            <button onClick={() => router.push('/')} className="btn-ghost px-2" aria-label="Leave room">
+              <i className="bi bi-arrow-left text-lg" />
             </button>
-          </div>
-        )}
 
-        {/* Main Content */}
-        <div className="max-w-7xl mx-auto p-4 pb-24">
-          <div className="space-y-6">
-
-            {/* YouTube Section - Only show when button is clicked */}
-            {showYouTubeSection && (
-              <div className="space-y-4 animate-fadeIn">
-                
-                {/* Video Controls - Host Only */}
-                {isHost && (
-                  <div className="bg-gradient-to-r from-red-900/50 to-red-800/50 backdrop-blur-sm rounded-lg p-4 border border-red-600/30">
-                    <div className="flex items-center space-x-3 mb-3">
-                      <div className="p-2 rounded-lg bg-red-600">
-                        <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                        </svg>
-                      </div>
-                      <h3 className="text-lg font-semibold text-white">YouTube Player Controls</h3>
-                      <span className="bg-red-600 text-white text-xs px-2 py-1 rounded">HOST ONLY</span>
-                    </div>
-                    <div className="flex space-x-2">
-                      <input
-                        type="url"
-                        value={videoUrl}
-                        onChange={(e) => setVideoUrl(e.target.value)}
-                        onKeyPress={(e) => handleKeyPress(e, loadVideo)}
-                        placeholder="Paste YouTube URL here..."
-                        className="flex-1 px-3 py-2 bg-black/30 border border-red-500/30 rounded focus:ring-2 focus:ring-red-500 focus:border-transparent text-white placeholder-red-200"
-                      />
-                      <button
-                        onClick={loadVideo}
-                        disabled={isVideoLoading}
-                        className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 px-4 py-2 rounded transition-colors text-white font-medium"
-                      >
-                        {isVideoLoading ? 'Loading...' : 'Load Video'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Video Player */}
-                <div className="bg-black rounded-lg overflow-hidden aspect-video border-2 border-red-600/30">
-                  {currentVideo ? (
-                    <div id="youtube-player" className="w-full h-full" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-500">
-                      <div className="text-center">
-                        <div className="text-6xl mb-4">🎬</div>
-                        <div className="text-xl mb-2 text-white">No video loaded</div>
-                        <div className="text-sm text-gray-300">
-                          {isHost ? 'Load a YouTube video to get started' : 'Waiting for the host to load a video...'}
-                        </div>
-                      </div>
-                    </div>
-                  )}
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-accent grid place-items-center text-white text-sm font-bold shrink-0">P</div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold tracking-tight truncate">Room</span>
+                  <button
+                    onClick={copyRoomCode}
+                    className="px-2 py-0.5 rounded-md bg-surface-3 border border-line text-xs font-mono tracking-widest hover:bg-surface-4 transition"
+                    title="Copy room code"
+                  >
+                    {code?.toUpperCase()}
+                  </button>
+                  {isHost && <span className="chip chip-accent">HOST</span>}
                 </div>
-
-                {/* Current Video Info */}
-                {currentVideo && (
-                  <div className="bg-gradient-to-r from-red-900/50 to-red-800/50 backdrop-blur-sm rounded-lg p-4 border border-red-600/30">
-                    <h3 className="font-semibold mb-1 text-white">Now Playing:</h3>
-                    <p className="text-red-200">{currentVideo.title}</p>
-                    {!isHost && (
-                      <p className="text-sm text-red-300 mt-2">
-                        Video controls are managed by the host
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Recommendations */}
-                {isHost && (
-                  <div className="bg-gradient-to-r from-red-900/50 to-red-800/50 backdrop-blur-sm rounded-lg p-4 border border-red-600/30">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="font-semibold text-white">AI Recommendations</h3>
-                      <button
-                        onClick={getRecommendations}
-                        disabled={!currentVideo}
-                        className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 px-3 py-1 text-sm rounded transition-colors text-white"
-                      >
-                        Get Recommendations
-                      </button>
-                    </div>
-                    
-                    {recommendations.length > 0 ? (
-                      <div className="space-y-2">
-                        {recommendations.map((rec) => (
-                          <div key={rec.videoId} className="flex items-center justify-between bg-black/30 p-2 rounded border border-red-600/20">
-                            <div className="flex-1 text-sm text-white">{rec.title}</div>
-                            <button
-                              onClick={() => loadRecommendedVideo(rec.videoId)}
-                              className="bg-red-600 hover:bg-red-700 px-2 py-1 text-xs rounded ml-2 transition-colors text-white"
-                            >
-                              Load
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-red-300 text-sm">
-                        Load a video and click &quot;Get Recommendations&quot; to see AI-suggested videos
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Users Section - Now below video */}
-            <div className="w-full">
-              <div className="bg-gradient-to-r from-gray-800 via-gray-800 to-gray-700 rounded-xl p-4 border border-gray-600 shadow-lg">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-bold text-lg bg-gradient-to-r from-white to-purple-200 bg-clip-text text-transparent">
-                    👥 Users in Room ({users.length})
-                  </h3>
-                  <div className="flex items-center space-x-4">
-                    {/* Invite Friends Button (for authenticated hosts) */}
-                    {user && userProfile && isHost && (
-                      <button
-                        onClick={() => setShowInviteFriends(true)}
-                        className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-4 py-2 rounded-lg transition-all duration-300 transform hover:scale-105 text-sm font-medium"
-                      >
-                        👥 Invite Friends
-                      </button>
-                    )}
-                    <div className="flex items-center space-x-2">
-                      <div className={`w-2 h-2 rounded-full animate-pulse ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
-                      <span className="text-sm text-gray-300">
-                        {isConnected ? 'Connected' : 'Disconnected'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3">
-                  {users.map((user) => {
-                    const isInVoiceChat = voiceUsers.includes(user.id);
-                    const isMuted = mutedUsers.includes(user.id);
-                    
-                    // Debug logging
-                    console.log('User card render:', {
-                      username: user.username,
-                      userId: user.id,
-                      isInVoiceChat,
-                      isMuted,
-                      voiceUsers,
-                      mutedUsers
-                    });
-                    
-                    return (
-                      <div 
-                        key={user.id} 
-                        className={`group rounded-lg p-3 border transition-all duration-300 hover:shadow-lg transform hover:scale-105 cursor-pointer ${
-                          isInVoiceChat && isMuted
-                            ? 'bg-gradient-to-br from-red-500 via-red-600 to-red-700 border-red-300 border-2 hover:border-red-200 hover:shadow-red-300/80 shadow-red-400/70 ring-2 ring-red-400/60'
-                            : isInVoiceChat 
-                            ? 'bg-gradient-to-br from-indigo-600/40 via-purple-700/30 to-pink-800/40 border-purple-400/60 hover:border-pink-300 hover:shadow-purple-500/30 shadow-purple-500/20' 
-                            : 'bg-gradient-to-br from-gray-700 to-gray-800 border-gray-600 hover:border-purple-500 hover:shadow-purple-500/20'
-                        }`}
-                        onContextMenu={(e) => handleUserRightClick(e, user)}
-                        title={user.id !== user?.id && user.username !== userProfile?.display_name ? "Right-click to add friend" : ""}
-                      >
-                        <div className="flex flex-col items-center space-y-2">
-                          {/* Avatar */}
-                          <div className="relative">
-                            <img
-                              src={user.avatar || getAvatarUrl(user.username.charAt(0).toUpperCase())}
-                              alt={user.username}
-                              className={`w-10 h-10 rounded-full border-2 shadow-lg object-cover ${
-                                isInVoiceChat 
-                                  ? isMuted 
-                                    ? 'border-red-400 ring-4 ring-red-500/60 shadow-red-500/50' 
-                                    : 'border-purple-400' 
-                                  : 'border-purple-400'
-                              }`}
-                              onError={(e) => {
-                                e.target.src = getAvatarUrl(user.username.charAt(0).toUpperCase());
-                              }}
-                            />
-                            {/* Online indicator */}
-                            <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-gray-800 animate-pulse ${
-                              isInVoiceChat 
-                                ? isMuted 
-                                  ? 'bg-red-500 shadow-lg shadow-red-500/50' 
-                                  : 'bg-purple-400' 
-                                : 'bg-green-400'
-                            }`}></div>
-                            
-                            {/* Voice chat mic icon */}
-                            {isInVoiceChat && (
-                              <div className={`absolute -top-1 -left-1 w-4 h-4 rounded-full border-2 border-gray-800 flex items-center justify-center shadow-lg ${
-                                isMuted 
-                                  ? 'bg-gradient-to-r from-red-500 to-red-600 ring-2 ring-red-400/50' 
-                                  : 'bg-gradient-to-r from-purple-500 to-pink-500'
-                              }`}>
-                                <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                  {isMuted ? (
-                                    <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 715 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-14-14z" clipRule="evenodd" />
-                                  ) : (
-                                    <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 715 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                                  )}
-                                </svg>
-                              </div>
-                            )}
-                          </div>
-                          
-                          {/* Username */}
-                          <div className="text-center">
-                            <div className={`text-sm font-medium truncate max-w-full ${
-                              user.id === socket?.id 
-                                ? 'text-purple-300 font-bold' 
-                                : isInVoiceChat && isMuted
-                                ? 'text-red-300 font-semibold drop-shadow-lg'
-                                : isInVoiceChat
-                                ? 'text-pink-200 font-semibold'
-                                : 'text-white'
-                            }`}>
-                              {user.username}
-                              {user.id === socket?.id && (
-                                <span className="block text-xs text-purple-400">(You)</span>
-                              )}
-                              {isInVoiceChat && user.id !== socket?.id && (
-                                <span className="block text-xs text-pink-400">🎤 In Voice</span>
-                              )}
-                            </div>
-                            
-                            {/* Host badge */}
-                            {roomData?.host === user.id && (
-                              <div className="mt-1">
-                                <span className="bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs px-2 py-0.5 rounded-full font-medium shadow-sm">
-                                  👑 HOST
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="text-xs text-ink-3 flex items-center gap-2">
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-success' : 'bg-danger'}`} />
+                  {isConnected ? 'Connected' : 'Connecting…'} · {userCount} {userCount === 1 ? 'person' : 'people'}
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-        
-        {/* Bottom Navigation */}
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-gray-800/95 backdrop-blur-sm border-t border-gray-700 p-4">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex items-center justify-between">
-              {/* Chat Button */}
-              <button
-                onClick={() => setShowChat(!showChat)}
-                className={`group relative overflow-hidden px-4 py-3 rounded-xl font-medium text-white transition-all duration-300 transform hover:scale-105 ${
-                  showChat
-                    ? 'bg-gradient-to-r from-purple-500 to-pink-500 shadow-lg shadow-purple-500/25'
-                    : 'bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-500 hover:to-gray-600 shadow-lg hover:shadow-gray-500/25'
-                }`}
-              >
-                <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                <div className="relative flex items-center space-x-2">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
-                  </svg>
-                  <span className="text-sm">Chat</span>
-                </div>
+
+            <div className="flex-1" />
+
+            <div className="flex items-center gap-2">
+              <button onClick={copyRoomLink} className="btn-secondary hidden sm:inline-flex">
+                <i className="bi bi-link-45deg" />
+                {copyFlash ? 'Copied' : 'Share link'}
               </button>
-
-              {/* Voice Chat Controls */}
-              {!isVoiceChatEnabled ? (
-                <div className="flex-1 flex justify-center">
-                  <button
-                    onClick={initializeVoiceChat}
-                    disabled={isConnecting}
-                    className={`group relative overflow-hidden px-6 py-3 rounded-xl font-medium text-white transition-all duration-300 transform hover:scale-105 ${
-                      isConnecting
-                        ? 'bg-gradient-to-r from-gray-600 to-gray-700 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 shadow-lg hover:shadow-green-500/25'
-                    }`}
-                  >
-                    <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
-                    <div className="relative flex items-center space-x-3">
-                      {isConnecting ? (
-                        <>
-                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                          <span>Connecting...</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 715 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                          </svg>
-                          <span>Join Voice Chat</span>
-                        </>
-                      )}
-                    </div>
-                  </button>
-                </div>
-              ) : (
-                <div className="flex-1 flex justify-center">
-                  <div className="flex items-center justify-center space-x-4">
-                    {/* Mute/Unmute button */}
-                    <button
-                      onClick={toggleMute}
-                      className={`group relative overflow-hidden px-4 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105 ${
-                        isMuted
-                          ? 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 shadow-lg hover:shadow-red-500/25'
-                          : 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 shadow-lg hover:shadow-blue-500/25'
-                      }`}
-                    >
-                      <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                      <div className="relative flex items-center space-x-2">
-                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                          {isMuted ? (
-                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 715 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-14-14z" clipRule="evenodd" />
-                          ) : (
-                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 715 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                          )}
-                        </svg>
-                        <span className="text-sm">{isMuted ? 'Unmute' : 'Mute'}</span>
-                      </div>
-                    </button>
-
-                    {/* Deafen/Undeafen button */}
-                    <button
-                      onClick={toggleDeafen}
-                      className={`group relative overflow-hidden px-4 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105 ${
-                        isDeafened
-                          ? 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-400 hover:to-red-400 shadow-lg hover:shadow-orange-500/25'
-                          : 'bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 shadow-lg hover:shadow-yellow-500/25'
-                      }`}
-                    >
-                      <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                      <div className="relative flex items-center space-x-2">
-                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.617.816L4.414 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.414l3.969-3.816a1 1 0 011.616.816z" clipRule="evenodd" />
-                          {isDeafened && <path fillRule="evenodd" d="M12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />}
-                        </svg>
-                        <span className="text-sm">{isDeafened ? 'Undeafen' : 'Deafen'}</span>
-                      </div>
-                    </button>
-
-                    {/* Leave Voice Chat button */}
-                    <button
-                      onClick={leaveVoiceChat}
-                      className="group relative overflow-hidden px-4 py-3 rounded-xl font-medium text-white transition-all duration-300 transform hover:scale-105 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 shadow-lg hover:shadow-red-500/25"
-                    >
-                      <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                      <div className="relative flex items-center space-x-2">
-                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                        </svg>
-                        <span className="text-sm">Leave</span>
-                      </div>
-                    </button>
-
-                    {/* Voice users count */}
-                    {voiceUsers.length > 0 && (
-                      <div className="bg-white/10 backdrop-blur-sm rounded-full px-3 py-2 border border-white/20">
-                        <div className="flex items-center space-x-2">
-                          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
-                          <span className="text-white font-medium text-sm">
-                            {voiceUsers.length} in voice
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Spacer for balance */}
-              <div className="w-20"></div>
+              <button onClick={() => setShowInviteFriends(true)} className="btn-primary">
+                <i className="bi bi-person-plus" />
+                <span className="hidden sm:inline">Invite friends</span>
+              </button>
             </div>
           </div>
-        </div>
-        
-        {/* Hamburger Menu Overlay */}
-        {showHamburgerMenu && (
-          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-start justify-end p-4">
-            <div className="bg-gray-800 rounded-xl p-6 w-full max-w-sm shadow-2xl border border-gray-700 max-h-[80vh] overflow-hidden flex flex-col">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex space-x-1">
-                  <button
-                    onClick={() => setHamburgerTab('apps')}
-                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                      hamburgerTab === 'apps' 
-                        ? 'bg-purple-600 text-white' 
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    }`}
-                  >
-                    <i className="bi bi-grid-3x3-gap mr-1" /> Apps
-                  </button>
-                  <button
-                    onClick={() => setHamburgerTab('chat')}
-                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                      hamburgerTab === 'chat' 
-                        ? 'bg-purple-600 text-white' 
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    }`}
-                  >
-                    <i className="bi bi-chat-dots mr-1" /> Chat
-                  </button>
-                </div>
-                <button
-                  onClick={() => setShowHamburgerMenu(false)}
-                  className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"
-                  aria-label="Close menu"
-                >
+
+          {error && (
+            <div className="px-3 sm:px-5 pb-3">
+              <div className="p-2.5 rounded-xl bg-danger-soft border border-danger/30 text-danger text-sm flex items-center justify-between">
+                <span>{error}</span>
+                <button onClick={() => setError('')} className="text-danger/80 hover:text-danger px-2">
                   <i className="bi bi-x-lg" />
                 </button>
               </div>
+            </div>
+          )}
+        </header>
 
-              <div className="flex-1 overflow-hidden">
-                {hamburgerTab === 'apps' && (
-                  <div className="space-y-4">
-                    {/* YouTube Watch Party App */}
-                    <button
-                      onClick={() => {
-                        setShowYouTubeSection(!showYouTubeSection);
-                        setShowHamburgerMenu(false);
-                      }}
-                      className={`w-full group relative overflow-hidden p-4 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
-                        showYouTubeSection 
-                          ? 'bg-gradient-to-r from-red-600 to-red-700 border-red-500 shadow-lg shadow-red-500/25' 
-                          : 'bg-gradient-to-r from-gray-700 to-gray-800 border-gray-600 hover:border-red-400 hover:shadow-lg hover:shadow-red-500/25'
-                      }`}>
-                      <div className="absolute inset-0 bg-white/10 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                      <div className="relative flex items-center space-x-3">
-                        <div className="text-3xl">
-                          <i className="bi bi-youtube text-red-500" />
-                        </div>
-                        <div className="text-left">
-                          <h4 className="text-white font-bold text-lg mb-1">
-                            YouTube Frame
-                          </h4>
-                          <p className="text-gray-300 text-sm">
-                            {showYouTubeSection ? 'Hide YouTube Player' : 'Watch videos together'}
-                          </p>
-                          {currentVideo && (
-                            <div className="mt-1 px-2 py-1 bg-red-600/20 rounded-full inline-block">
-                              <span className="text-xs text-red-300">• Now Playing</span>
-                            </div>
-                          )}
-                        </div>
+        {/* Main layout */}
+        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+          {/* Video area */}
+          <div className="flex-1 flex flex-col p-3 sm:p-5 overflow-y-auto scroll-thin">
+            <div className="surface-card overflow-hidden">
+              <div className="relative aspect-video bg-black">
+                {currentVideo?.videoId ? (
+                  <div id="youtube-player" className="absolute inset-0 w-full h-full" />
+                ) : (
+                  <div className="absolute inset-0 grid place-items-center">
+                    <div className="text-center px-6">
+                      <div className="w-14 h-14 mx-auto rounded-2xl bg-surface-3 border border-line grid place-items-center mb-4">
+                        <i className="bi bi-youtube text-2xl text-danger" />
                       </div>
-                    </button>
-
-                    {/* Video Chat App */}
-                    <button
-                      onClick={() => {
-                        setShowVideoChat(!showVideoChat);
-                        setShowHamburgerMenu(false);
-                      }}
-                      className="w-full p-4 rounded-xl border-2 border-gray-600 hover:border-purple-400 transition-all duration-200 hover:scale-105 bg-gradient-to-r from-gray-700 to-gray-800"
-                    >
-                      <div className="flex items-center space-x-3">
-                        <div className="text-3xl">
-                          <i className="bi bi-camera-video" />
-                        </div>
-                        <div className="text-left">
-                          <h4 className="text-white font-bold text-lg mb-1">Video Chat</h4>
-                          <p className="text-gray-300 text-sm">Start a video call with room members</p>
-                        </div>
-                      </div>
-                    </button>
-
-                    {/* Canvas App */}
-                    <button
-                      onClick={() => {
-                        setShowCanvas(!showCanvas);
-                        setShowHamburgerMenu(false);
-                      }}
-                      className={`w-full group relative overflow-hidden p-4 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
-                        showCanvas
-                          ? 'bg-gradient-to-r from-blue-600 to-cyan-600 border-blue-500 shadow-lg shadow-blue-500/25'
-                          : 'bg-gradient-to-r from-gray-700 to-gray-800 border-gray-600 hover:border-blue-400 hover:shadow-lg hover:shadow-blue-500/25'
-                      }`}>
-                      <div className="absolute inset-0 bg-white/10 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                      <div className="relative flex items-center space-x-3">
-                        <div className="text-3xl">
-                          <i className="bi bi-palette text-blue-400" />
-                        </div>
-                        <div className="text-left">
-                          <h4 className="text-white font-bold text-lg mb-1">
-                            Collaborative Canvas
-                          </h4>
-                          <p className="text-gray-300 text-sm">
-                            {showCanvas ? 'Hide Canvas' : 'Draw together (Host controlled)'}
-                          </p>
-                          {isHost && (
-                            <div className="mt-1 px-2 py-1 bg-blue-600/20 rounded-full inline-block">
-                              <span className="text-xs text-blue-300">• Host Controls</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-
-                    {/* Future Apps - Placeholder */}
-                    <div className="w-full p-4 rounded-xl border-2 border-dashed border-gray-600 text-center opacity-50">
-                      <div className="flex items-center space-x-3">
-                        <div className="text-3xl">
-                          <i className="bi bi-music-note-list" />
-                        </div>
-                        <div className="text-left">
-                          <h4 className="text-gray-400 font-bold text-lg mb-1">Music Player</h4>
-                          <p className="text-gray-500 text-sm">Coming Soon</p>
-                        </div>
-                      </div>
+                      <h3 className="text-lg font-semibold">No video yet</h3>
+                      <p className="text-ink-2 text-sm mt-1">
+                        {isHost ? 'Paste a YouTube link below to start the party.' : 'Waiting for the host to load a video.'}
+                      </p>
                     </div>
                   </div>
                 )}
-
-                {hamburgerTab === 'chat' && (
-                  <div className="flex flex-col h-full">
-                    {/* Chat Header */}
-                    <div className="bg-gradient-to-r from-purple-600/30 to-pink-600/30 backdrop-blur-sm p-3 border-b border-white/10 rounded-t-lg">
-                      <div className="flex items-center space-x-2">
-                        <div className="p-1.5 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 shadow-lg">
-                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
-                          </svg>
-                        </div>
-                        <div>
-                          <h3 className="text-white font-bold text-sm">
-                            Chat
-                          </h3>
-                          <p className="text-purple-200 text-xs">
-                            {messages.length} message{messages.length !== 1 ? 's' : ''}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Messages Container */}
-                    <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin scrollbar-thumb-purple-500 scrollbar-track-transparent max-h-64">
-                      {messages.length > 0 ? (
-                        messages.map((msg, index) => (
-                          <div key={msg.id} className="group">
-                            <div className={`flex items-start space-x-2 ${msg.username === userProfile.display_name ? 'justify-end' : 'justify-start'}`}>
-                              {/* Avatar for other users (left side) */}
-                              {msg.username !== userProfile.display_name && (
-                                <div className="flex-shrink-0">
-                                  <img
-                                    src={msg.avatar || getAvatarUrl(msg.username.charAt(0).toUpperCase())}
-                                    alt={msg.username}
-                                    className="w-6 h-6 rounded-full border border-purple-400 shadow-sm object-cover"
-                                    onError={(e) => {
-                                      e.target.src = getAvatarUrl(msg.username.charAt(0).toUpperCase());
-                                    }}
-                                  />
-                                </div>
-                              )}
-                              
-                              {/* Message bubble */}
-                              <div className={`max-w-xs px-3 py-2 rounded-xl shadow-sm backdrop-blur-sm border transition-all duration-300 group-hover:shadow-md ${
-                                msg.username === userProfile.display_name
-                                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white border-purple-500/20'
-                                  : 'bg-white/10 text-white border-white/20'
-                              }`}>
-                                {msg.username !== userProfile.display_name && (
-                                  <div className="text-xs font-medium text-purple-300 mb-1">
-                                    {msg.username}
-                                  </div>
-                                )}
-                                <div className="text-xs leading-relaxed break-words">
-                                  {msg.message}
-                                </div>
-                                <div className={`text-xs mt-1 opacity-70 ${
-                                  msg.username === userProfile.display_name ? 'text-purple-100' : 'text-gray-300'
-                                }`}>
-                                  {new Date(msg.timestamp || Date.now()).toLocaleTimeString([], { 
-                                    hour: '2-digit', 
-                                    minute: '2-digit' 
-                                  })}
-                                </div>
-                              </div>
-
-                              {/* Avatar for current user (right side) */}
-                              {msg.username === userProfile.display_name && (
-                                <div className="flex-shrink-0">
-                                  <img
-                                    src={msg.avatar || userProfile.avatar_url}
-                                    alt={userProfile.display_name}
-                                    className="w-6 h-6 rounded-full border border-purple-400 shadow-sm object-cover"
-                                    onError={() => {
-                                      e.target.src = userProfile.avatar_url;
-                                    }}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="text-center py-6">
-                          <div className="text-4xl mb-2 opacity-50">💬</div>
-                          <div className="text-purple-200 text-xs">
-                            No messages yet
-                          </div>
-                          <div className="text-purple-300 text-xs mt-1">
-                            Start the conversation!
-                          </div>
-                        </div>
-                      )}
-                      <div ref={messagesEndRef} />
-                    </div>
-
-                    {/* Message Input */}
-                    <div className="p-3 border-t border-white/10 bg-black/20">
-                      <div className="flex space-x-2">
-                        <div className="flex-1 relative">
-                          <input
-                            type="text"
-                            value={newMessage}
-                            onChange={(e) => setNewMessage(e.target.value)}
-                            onKeyPress={(e) => handleKeyPress(e, sendMessage)}
-                            placeholder="Type your message..."
-                            maxLength={200}
-                            className="w-full px-3 py-2 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-purple-200 text-xs transition-all duration-300 hover:bg-white/15"
-                          />
-                          <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-purple-300">
-                            {newMessage.length}/200
-                          </div>
-                        </div>
-                        <button
-                          onClick={sendMessage}
-                          disabled={!newMessage.trim()}
-                          className="group relative overflow-hidden bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 disabled:from-gray-600 disabled:to-gray-700 px-3 py-2 rounded-lg font-medium text-white transition-all duration-300 transform hover:scale-105 disabled:hover:scale-100 shadow-lg hover:shadow-purple-500/25"
-                        >
-                          <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                          <div className="relative">
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                              <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-                            </svg>
-                          </div>
-                        </button>
-                      </div>
-                    </div>
+                {isVideoLoading && (
+                  <div className="absolute inset-0 grid place-items-center bg-surface-1/80 backdrop-blur-sm">
+                    <div className="w-10 h-10 border-2 border-ink-3 border-t-accent rounded-full animate-spin" />
                   </div>
                 )}
               </div>
             </div>
-          </div>
-        )}
-        
-        {/* Chat Panel */}
-        {showChat && (
-          <div className="fixed bottom-20 right-4 z-50 bg-gray-800 rounded-xl p-4 w-80 shadow-2xl border border-gray-700 max-h-96 flex flex-col">
-            {/* Chat Header */}
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center space-x-2">
-                <div className="p-1.5 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 shadow-lg">
-                  <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-white font-bold text-sm">
-                    Chat
-                  </h3>
-                  <p className="text-purple-200 text-xs">
-                    {messages.length} message{messages.length !== 1 ? 's' : ''}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowChat(false)}
-                className="p-1.5 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"
-                aria-label="Close chat"
-              >
-                <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-              </button>
-            </div>
 
-            {/* Messages Container */}
-            <div className="flex-1 overflow-y-auto space-y-2 scrollbar-thin scrollbar-thumb-purple-500 scrollbar-track-transparent max-h-48 mb-3">
-              {messages.length > 0 ? (
-                messages.map((msg, index) => (
-                  <div
-                    key={index}
-                    className={`p-2 rounded-lg text-xs ${
-                      msg.username === userProfile.display_name
-                        ? 'bg-gradient-to-r from-purple-500/20 to-pink-500/20 ml-8 border-l-4 border-purple-400'
-                        : 'bg-gray-700/50 mr-8 border-l-4 border-gray-500'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-2 mb-1">
-                      <span className="font-bold text-white text-xs">
-                        {msg.username}
-                      </span>
-                      <span className="text-gray-400 text-xs">
-                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                    <div className="text-gray-200 text-xs break-words">
-                      {msg.message}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-4">
-                  <div className="text-2xl mb-1 opacity-50">💬</div>
-                  <div className="text-purple-200 text-xs">
-                    No messages yet
-                  </div>
-                  <div className="text-purple-300 text-xs mt-1">
-                    Start the conversation!
-                  </div>
+            {/* Host controls */}
+            {isHost && (
+              <div className="surface-flat p-4 mt-3">
+                <div className="flex items-center gap-2 mb-3">
+                  <i className="bi bi-youtube text-danger" />
+                  <span className="text-sm font-medium">Load a video</span>
+                  <span className="chip chip-accent ml-auto">HOST</span>
                 </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Message Input */}
-            <div className="border-t border-white/10 pt-3">
-              <div className="flex space-x-2">
-                <div className="flex-1 relative">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <input
-                    type="text"
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    onKeyPress={(e) => handleKeyPress(e, sendMessage)}
-                    placeholder="Type your message..."
-                    maxLength={200}
-                    className="w-full px-3 py-2 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-purple-200 text-xs transition-all duration-300 hover:bg-white/15"
+                    type="url"
+                    value={videoUrl}
+                    onChange={(e) => setVideoUrl(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && loadVideo()}
+                    placeholder="https://youtube.com/watch?v=…"
+                    className="input flex-1"
                   />
-                  <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-purple-300">
-                    {newMessage.length}/200
-                  </div>
+                  <button onClick={loadVideo} disabled={isVideoLoading || !videoUrl.trim()} className="btn-primary">
+                    <i className="bi bi-play-fill" /> Load
+                  </button>
                 </div>
-                <button
-                  onClick={sendMessage}
-                  disabled={!newMessage.trim()}
-                  className="group relative overflow-hidden bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 disabled:from-gray-600 disabled:to-gray-700 px-3 py-2 rounded-lg font-medium text-white transition-all duration-300 transform hover:scale-105 disabled:hover:scale-100 shadow-lg hover:shadow-purple-500/25"
-                >
-                  <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                  <div className="relative">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-                    </svg>
-                  </div>
-                </button>
+                {currentVideo?.title && (
+                  <p className="helper mt-3">Now playing: <span className="text-ink-1">{currentVideo.title}</span></p>
+                )}
+              </div>
+            )}
+            {!isHost && currentVideo?.title && (
+              <div className="surface-flat p-4 mt-3 text-sm">
+                <span className="text-ink-3">Now playing · </span>
+                <span className="font-medium">{currentVideo.title}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Right rail / tabbed panel */}
+          <aside className="lg:w-[400px] lg:border-l lg:border-line bg-surface-2 flex flex-col border-t lg:border-t-0 border-line">
+            {/* Tabs */}
+            <div className="p-2 border-b border-line bg-surface-2 sticky top-0 z-10">
+              <div className="flex p-1 gap-1 bg-surface-1 border border-line rounded-xl">
+                <TabButton active={activeTab === 'chat'} onClick={() => setActiveTab('chat')} icon="bi-chat-dots-fill" label="Chat" count={messages.length || null} />
+                <TabButton active={activeTab === 'people'} onClick={() => setActiveTab('people')} icon="bi-people-fill" label="People" count={userCount} />
+                <TabButton active={activeTab === 'voice'} onClick={() => setActiveTab('voice')} icon="bi-mic-fill" label="Voice" count={inVoiceCount || null} live={isVoiceChatEnabled} />
               </div>
             </div>
-          </div>
-        )}
-        
-        {/* Invite Friends Modal */}
-        {user && userProfile && (
-          <InviteFriends
-            roomCode={code}
-            roomData={{
-              activity: currentVideo ? `Watching: ${currentVideo.title}` : 'Hanging out',
-              userCount: users.length
-            }}
-            isVisible={showInviteFriends}
-            onClose={() => setShowInviteFriends(false)}
-          />
-        )}
 
-        {/* Video Chat Modal (uses same signaling channels as voice chat) */}
-        {showVideoChat && (
-          <VideoChat
-            socket={socket}
-            roomCode={code}
-            username={userProfile.display_name}
-            isVisible={showVideoChat}
-            onClose={() => setShowVideoChat(false)}
-          />
-        )}
-
-        {/* Canvas Modal */}
-        {showCanvas && (
-          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="w-full max-w-4xl max-h-[90vh] overflow-auto">
-              <Canvas
-                socket={socket}
-                roomCode={code}
-                isHost={isHost}
-                username={userProfile.display_name}
+            {/* Panels */}
+            {activeTab === 'chat' && (
+              <ChatPanel
+                messages={messages}
+                myName={userProfile.display_name}
+                value={newMessage}
+                setValue={setNewMessage}
+                onSend={sendMessage}
+                inputRef={chatInputRef}
+                bottomRef={messagesEndRef}
               />
-              <button
-                onClick={() => setShowCanvas(false)}
-                className="absolute top-4 right-4 p-2 rounded-full bg-gray-800 hover:bg-gray-700 text-white transition-colors"
-                aria-label="Close canvas"
-              >
-                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        )}
+            )}
 
-        {/* User Context Menu */}
+            {activeTab === 'people' && (
+              <PeoplePanel
+                users={users}
+                voiceUsers={voiceUsers}
+                mutedUsers={mutedUsers}
+                currentUserId={user.id}
+                socketId={socket?.id}
+                isHostId={roomData?.hostId}
+                onRightClick={handleUserRightClick}
+              />
+            )}
+
+            {activeTab === 'voice' && (
+              <VoicePanel
+                enabled={isVoiceChatEnabled}
+                connecting={isConnecting}
+                isMuted={isMuted}
+                isDeafened={isDeafened}
+                voiceUsers={voiceUsers}
+                mutedUsers={mutedUsers}
+                users={users}
+                socketId={socket?.id}
+                onJoin={initializeVoice}
+                onLeave={leaveVoice}
+                onToggleMute={toggleMute}
+                onToggleDeafen={toggleDeafen}
+              />
+            )}
+          </aside>
+        </div>
+
+        {/* Context menu */}
         {contextMenu.show && contextMenu.targetUser && (
           <div
-            className="fixed bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 py-2 min-w-[180px]"
-            style={{
-              left: `${Math.min(contextMenu.x, window.innerWidth - 200)}px`,
-              top: `${Math.min(contextMenu.y, window.innerHeight - 100)}px`,
-            }}
+            className="fixed surface-raised py-1.5 z-50 w-56"
+            style={{ left: Math.min(contextMenu.x, window.innerWidth - 240), top: Math.min(contextMenu.y, window.innerHeight - 150) }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-3 py-2 border-b border-gray-600">
-              <div className="flex items-center space-x-2">
-                <img
-                  src={contextMenu.targetUser.avatar || getAvatarUrl(contextMenu.targetUser.username.charAt(0).toUpperCase())}
-                  alt={contextMenu.targetUser.username}
-                  className="w-6 h-6 rounded-full border border-purple-400"
-                />
-                <span className="text-white font-medium text-sm truncate">
-                  {contextMenu.targetUser.username}
-                </span>
-              </div>
+            <div className="px-3 py-2 border-b border-line">
+              <div className="text-sm font-medium truncate">{contextMenu.targetUser.username}</div>
+              <div className="text-xs text-ink-3">In this room</div>
             </div>
             <button
               onClick={handleSendFriendRequest}
               disabled={friendRequestLoading}
-              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-purple-600/20 transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-3 py-2 text-sm text-left hover:bg-surface-3 transition flex items-center gap-2"
             >
-              {friendRequestLoading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-500"></div>
-                  <span>Sending...</span>
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z"/>
-                  </svg>
-                  <span>Add Friend</span>
-                </>
-              )}
+              <i className="bi bi-person-plus" />
+              {friendRequestLoading ? 'Sending…' : 'Send friend request'}
             </button>
           </div>
         )}
+
+        {/* Invite friends modal */}
+        {showInviteFriends && (
+          <InviteFriends
+            roomCode={code?.toUpperCase()}
+            roomData={{ room_name: `Room ${code}`, inviter_name: userProfile.display_name }}
+            isVisible={showInviteFriends}
+            onClose={() => setShowInviteFriends(false)}
+          />
+        )}
       </div>
     </>
+  );
+}
+
+/* ============================== sub components ============================== */
+
+function TabButton({ active, onClick, icon, label, count, live }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium inline-flex items-center justify-center gap-2 transition relative
+        ${active ? 'bg-surface-3 text-ink-0 shadow-soft' : 'text-ink-2 hover:text-ink-0 hover:bg-surface-2'}`}
+    >
+      <i className={`bi ${icon} text-base`} />
+      <span>{label}</span>
+      {count != null && count > 0 && (
+        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md min-w-[18px] text-center ${active ? 'bg-accent text-white' : 'bg-surface-3 text-ink-2'}`}>
+          {count}
+        </span>
+      )}
+      {live && (
+        <span className="absolute top-1 right-1 flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+        </span>
+      )}
+    </button>
+  );
+}
+
+function ChatPanel({ messages, myName, value, setValue, onSend, inputRef, bottomRef }) {
+  const [isFocused, setIsFocused] = useState(false);
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex-1 overflow-y-auto scroll-thin px-3 py-4 space-y-1">
+        {messages.length === 0 && (
+          <div className="h-full flex items-center justify-center text-center py-10">
+            <div className="max-w-[220px]">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-accent-soft border border-accent/30 grid place-items-center mb-3">
+                <i className="bi bi-chat-dots-fill text-2xl text-accent" />
+              </div>
+              <p className="text-sm font-medium">No messages yet</p>
+              <p className="text-xs text-ink-3 mt-1">Say hi or react to the video.</p>
+            </div>
+          </div>
+        )}
+        {messages.map((m, i) => {
+          const mine = m.username === myName;
+          const prev = messages[i - 1];
+          const next = messages[i + 1];
+
+          // Time separator if gap > 5 min from previous
+          const showTimeBreak =
+            !prev ||
+            (m.timestamp && prev.timestamp && m.timestamp - prev.timestamp > 5 * 60 * 1000);
+
+          const sameAsPrev = prev && prev.username === m.username && !showTimeBreak;
+          const sameAsNext = next && next.username === m.username && (!next.timestamp || !m.timestamp || next.timestamp - m.timestamp < 5 * 60 * 1000);
+
+          const showHeader = !sameAsPrev;
+
+          // Corner rounding for stacked messages
+          let cornerCls = '';
+          if (mine) {
+            if (sameAsPrev && sameAsNext) cornerCls = 'rounded-r-md';
+            else if (sameAsPrev) cornerCls = 'rounded-tr-md';
+            else if (sameAsNext) cornerCls = 'rounded-br-md';
+            else cornerCls = 'rounded-br-md';
+          } else {
+            if (sameAsPrev && sameAsNext) cornerCls = 'rounded-l-md';
+            else if (sameAsPrev) cornerCls = 'rounded-tl-md';
+            else if (sameAsNext) cornerCls = 'rounded-bl-md';
+            else cornerCls = 'rounded-bl-md';
+          }
+
+          return (
+            <div key={m.id || i}>
+              {showTimeBreak && m.timestamp && (
+                <div className="flex items-center gap-3 my-3">
+                  <div className="flex-1 h-px bg-line" />
+                  <span className="text-[10px] uppercase tracking-wider text-ink-3 font-medium">
+                    {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <div className="flex-1 h-px bg-line" />
+                </div>
+              )}
+              <div className={`flex ${mine ? 'justify-end' : 'justify-start'} ${sameAsPrev ? 'mt-0.5' : 'mt-2'} animate-fade-in-up`}>
+                <div className={`max-w-[82%] flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
+                  {showHeader && (
+                    <div className={`text-[11px] text-ink-3 mb-1 px-1 flex items-center gap-1.5 ${mine ? 'flex-row-reverse' : ''}`}>
+                      <span className="font-semibold text-ink-1">{mine ? 'You' : m.username}</span>
+                      {m.timestamp && (
+                        <span className="text-ink-3">{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      )}
+                    </div>
+                  )}
+                  <div className={`px-3.5 py-2 rounded-2xl text-sm leading-relaxed break-words shadow-soft
+                    ${mine ? `bg-accent text-white ${cornerCls}` : `bg-surface-3 border border-line text-ink-0 ${cornerCls}`}`}>
+                    {m.message}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Composer */}
+      <div className="border-t border-line p-3 bg-surface-2">
+        <div className={`flex items-center gap-2 bg-surface-1 border rounded-2xl px-3 py-1.5 transition
+          ${isFocused ? 'border-accent ring-4 ring-accent/20' : 'border-line'}`}>
+          <input
+            ref={inputRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && onSend()}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            placeholder="Send a message…"
+            className="flex-1 bg-transparent outline-none text-sm py-2 placeholder-ink-3"
+            maxLength={500}
+          />
+          {value.length > 400 && (
+            <span className="text-[10px] text-ink-3 font-mono">{500 - value.length}</span>
+          )}
+          <button
+            onClick={onSend}
+            disabled={!value.trim()}
+            className={`w-9 h-9 rounded-xl grid place-items-center transition shrink-0
+              ${value.trim() ? 'bg-accent text-white hover:bg-accent-hover active:scale-95' : 'bg-surface-3 text-ink-3 cursor-not-allowed'}`}
+            aria-label="Send"
+          >
+            <i className="bi bi-send-fill text-sm" />
+          </button>
+        </div>
+        <p className="text-[10px] text-ink-3 mt-2 px-1">Press Enter to send</p>
+      </div>
+    </div>
+  );
+}
+
+function PeoplePanel({ users, voiceUsers, mutedUsers, currentUserId, socketId, isHostId, onRightClick }) {
+  const inVoiceUsers = users.filter(u => voiceUsers.includes(u.id));
+  const watchingUsers = users.filter(u => !voiceUsers.includes(u.id));
+
+  return (
+    <div className="flex-1 overflow-y-auto scroll-thin p-3">
+      {inVoiceUsers.length > 0 && (
+        <>
+          <SectionHeader icon="bi-mic-fill" label="In voice" count={inVoiceUsers.length} />
+          <div className="space-y-1 mb-4">
+            {inVoiceUsers.map((u) => (
+              <PersonRow
+                key={u.id} u={u} muted={mutedUsers.includes(u.id)} inVoice
+                isMe={u.id === currentUserId || u.id === socketId}
+                isUserHost={u.isHost || u.id === isHostId}
+                onRightClick={onRightClick}
+              />
+            ))}
+          </div>
+        </>
+      )}
+      <SectionHeader icon="bi-eye-fill" label="Watching" count={watchingUsers.length} />
+      <div className="space-y-1">
+        {watchingUsers.map((u) => (
+          <PersonRow
+            key={u.id} u={u}
+            isMe={u.id === currentUserId || u.id === socketId}
+            isUserHost={u.isHost || u.id === isHostId}
+            onRightClick={onRightClick}
+          />
+        ))}
+      </div>
+      <p className="text-[10px] text-ink-3 mt-4 px-1">Right-click a user to send a friend request.</p>
+    </div>
+  );
+}
+
+function SectionHeader({ icon, label, count }) {
+  return (
+    <div className="flex items-center gap-2 mb-2 px-1">
+      <i className={`bi ${icon} text-[10px] text-ink-3`} />
+      <span className="text-[10px] font-semibold text-ink-3 uppercase tracking-[0.16em]">{label}</span>
+      <span className="text-[10px] font-semibold text-ink-3">· {count}</span>
+    </div>
+  );
+}
+
+function PersonRow({ u, muted, inVoice, isMe, isUserHost, onRightClick }) {
+  return (
+    <div
+      onContextMenu={(e) => onRightClick(e, u)}
+      className="group flex items-center gap-3 p-2 rounded-xl hover:bg-surface-3 transition cursor-pointer"
+    >
+      <div className="relative shrink-0">
+        <img
+          src={u.avatar || getAvatarUrl(u.username || u.display_name || 'U')}
+          alt={u.username}
+          className="w-9 h-9 rounded-full object-cover border border-line"
+        />
+        {inVoice && (
+          <div className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full grid place-items-center border-2 border-surface-2
+            ${muted ? 'bg-danger' : 'bg-success'}`}>
+            <i className={`bi ${muted ? 'bi-mic-mute-fill' : 'bi-mic-fill'} text-[8px] text-white`} />
+          </div>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium truncate flex items-center gap-1.5">
+          {u.username || u.display_name}
+          {isMe && <span className="text-ink-3 text-[10px] font-normal">· you</span>}
+        </div>
+        <div className="text-[11px] text-ink-3 truncate">
+          {isUserHost ? 'Host of the room' : inVoice ? (muted ? 'Voice · muted' : 'Voice · talking') : 'Watching'}
+        </div>
+      </div>
+      {isUserHost && (
+        <span className="chip chip-accent text-[9px] py-0.5">
+          <i className="bi bi-star-fill" /> HOST
+        </span>
+      )}
+    </div>
+  );
+}
+
+function VoicePanel({
+  enabled, connecting, isMuted, isDeafened,
+  voiceUsers, mutedUsers, users, socketId,
+  onJoin, onLeave, onToggleMute, onToggleDeafen,
+}) {
+  const speakers = useMemo(() => users.filter((u) => voiceUsers.includes(u.id)), [users, voiceUsers]);
+
+  return (
+    <div className="flex-1 flex flex-col p-4">
+      {!enabled ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center">
+          <div className="relative mb-6">
+            <div className="absolute inset-0 rounded-full bg-accent/15 blur-2xl" />
+            <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-accent to-accent-hover grid place-items-center shadow-glow">
+              <i className="bi bi-mic-fill text-4xl text-white" />
+            </div>
+          </div>
+          <h3 className="text-xl font-semibold tracking-tight">Voice chat</h3>
+          <p className="text-ink-2 text-sm mt-1.5 max-w-[260px]">
+            Talk with everyone in the room while you watch together.
+          </p>
+          <button onClick={onJoin} disabled={connecting} className="btn-primary btn-lg mt-6 w-full max-w-[240px]">
+            {connecting ? (
+              <span className="inline-flex items-center gap-2">
+                <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                Connecting…
+              </span>
+            ) : (
+              <>
+                <i className="bi bi-mic-fill" />
+                Join voice
+              </>
+            )}
+          </button>
+          <p className="helper mt-4 flex items-center gap-1.5 justify-center">
+            <i className="bi bi-shield-check" /> Your browser will ask for mic permission.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center justify-between mb-3 px-1">
+            <div className="flex items-center gap-2">
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+              </span>
+              <span className="text-[10px] font-semibold text-ink-3 uppercase tracking-[0.16em]">
+                Live · {speakers.length}
+              </span>
+            </div>
+            <span className="text-[10px] text-ink-3">
+              {isMuted ? 'You are muted' : 'You are live'}
+            </span>
+          </div>
+
+          <div className="space-y-2 flex-1 overflow-y-auto scroll-thin">
+            {speakers.length === 0 && (
+              <div className="text-center text-ink-3 text-sm py-10">
+                <i className="bi bi-soundwave text-2xl block mb-2" />
+                Waiting for others to join…
+              </div>
+            )}
+            {speakers.map((u) => {
+              const muted = mutedUsers.includes(u.id);
+              const isMe = u.id === socketId;
+              return (
+                <div key={u.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-surface-3 border border-line">
+                  <div className="relative">
+                    <img
+                      src={u.avatar || getAvatarUrl(u.username || 'U')}
+                      alt={u.username}
+                      className={`w-10 h-10 rounded-full object-cover border-2 transition
+                        ${muted ? 'border-danger/50' : 'border-success/60'}`}
+                    />
+                    <div className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full grid place-items-center border-2 border-surface-3
+                      ${muted ? 'bg-danger' : 'bg-success'}`}>
+                      <i className={`bi ${muted ? 'bi-mic-mute-fill' : 'bi-mic-fill'} text-[8px] text-white`} />
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">
+                      {u.username || u.display_name}
+                      {isMe && <span className="text-ink-3 text-[10px] font-normal ml-1">· you</span>}
+                    </div>
+                    <div className="text-[11px] text-ink-3">
+                      {muted ? 'Muted' : 'Speaking'}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Voice control bar */}
+          <div className="mt-3 surface-flat p-2 flex items-center justify-around gap-2">
+            <VoiceControl
+              onClick={onToggleMute} dangerWhenOff active={!isMuted}
+              icon={isMuted ? 'bi-mic-mute-fill' : 'bi-mic-fill'}
+              label={isMuted ? 'Unmute' : 'Mute'}
+            />
+            <VoiceControl
+              onClick={onToggleDeafen} dangerWhenOff active={!isDeafened}
+              icon={isDeafened ? 'bi-volume-mute-fill' : 'bi-volume-up-fill'}
+              label={isDeafened ? 'Undeafen' : 'Deafen'}
+            />
+            <VoiceControl onClick={onLeave} danger icon="bi-telephone-x-fill" label="Leave" />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function VoiceControl({ icon, label, onClick, active, danger, dangerWhenOff }) {
+  let cls = 'flex-1 flex flex-col items-center gap-1.5 px-3 py-2.5 rounded-xl transition select-none active:scale-95';
+  if (danger) cls += ' bg-danger/15 hover:bg-danger/25 text-danger';
+  else if (dangerWhenOff && !active) cls += ' bg-danger/15 hover:bg-danger/25 text-danger';
+  else cls += ' bg-surface-3 hover:bg-surface-4 text-ink-0 border border-line';
+  return (
+    <button onClick={onClick} className={cls}>
+      <i className={`bi ${icon} text-lg`} />
+      <span className="text-[10px] font-semibold tracking-wider uppercase">{label}</span>
+    </button>
   );
 }

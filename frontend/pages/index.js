@@ -6,10 +6,6 @@ import ServerStatus from '../components/ServerStatus';
 import { useAuth } from '../contexts/AuthContext';
 import { getAvatarUrl } from '../utils/urls';
 
-/**
- * Landing page - requires authentication
- * Provides the main entry point to the watch party application
- */
 export default function Home() {
   const { user, userProfile, signOut, loading, sessionRestored } = useAuth();
   const [roomCode, setRoomCode] = useState('');
@@ -17,20 +13,21 @@ export default function Home() {
   const [error, setError] = useState('');
   const router = useRouter();
 
-  // Redirect to login if not authenticated
   useEffect(() => {
-    // Only redirect after session restoration is complete and no user is found
     if (sessionRestored && !loading && !user) {
       router.push('/login');
     }
   }, [user, loading, sessionRestored, router]);
 
-  /**
-   * Create a new room
-   */
+  const profile = userProfile || (user && {
+    display_name: user.email?.split('@')[0] || 'User',
+    username: user.email?.split('@')[0] || 'user',
+    avatar_url: getAvatarUrl(user.email?.charAt(0).toUpperCase() || 'U'),
+  });
+
   const createRoom = async () => {
     if (!user || !profile) {
-      setError('You must be logged in to create a room');
+      setError('You must be logged in to create a room.');
       return;
     }
 
@@ -40,16 +37,14 @@ export default function Home() {
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/api/create-room`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
       });
-
       const data = await response.json();
 
       if (data.roomCode) {
-        // Navigate to the room with user data
         const params = new URLSearchParams({
           username: profile.display_name,
-          avatar: encodeURIComponent(profile.avatar_url)
+          avatar: encodeURIComponent(profile.avatar_url),
         });
         router.push(`/r/${data.roomCode}?${params.toString()}`);
       } else {
@@ -57,225 +52,219 @@ export default function Home() {
       }
     } catch (err) {
       console.error('Error creating room:', err);
-      setError('Failed to create room. Please check your connection.');
+      setError('Couldn’t reach the server. Check your connection.');
     } finally {
       setIsCreating(false);
     }
   };
 
-  /**
-   * Join an existing room
-   */
   const joinRoom = async () => {
     if (!user || !profile) {
-      setError('You must be logged in to join a room');
+      setError('You must be logged in to join a room.');
       return;
     }
-
     if (!roomCode.trim()) {
-      setError('Please enter a room code');
+      setError('Enter a room code first.');
       return;
     }
 
     setError('');
-
     try {
-      // Validate room exists
-      const response = await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/api/room/${roomCode.toUpperCase()}`);
-      
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SERVER_URL}/api/room/${roomCode.toUpperCase()}`,
+      );
+
       if (response.ok) {
         const data = await response.json();
         if (data.exists) {
-          // Navigate to the room with user data
           const params = new URLSearchParams({
             username: profile.display_name,
-            avatar: encodeURIComponent(profile.avatar_url)
+            avatar: encodeURIComponent(profile.avatar_url),
           });
           router.push(`/r/${roomCode.toUpperCase()}?${params.toString()}`);
         } else {
-          setError('Room not found. Please check the room code.');
+          setError('Room not found. Check the code.');
         }
       } else {
-        setError('Room not found. Please check the room code.');
+        setError('Room not found. Check the code.');
       }
     } catch (err) {
       console.error('Error joining room:', err);
-      setError('Failed to join room. Please check your connection.');
+      setError('Couldn’t reach the server.');
     }
   };
 
-  /**
-   * Handle Enter key press
-   */
   const handleKeyPress = (e, action) => {
-    if (e.key === 'Enter') {
-      action();
-    }
+    if (e.key === 'Enter') action();
   };
 
-  // Show loading while checking authentication or loading profile
   if (loading || (user && !userProfile)) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-white text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-          <p>{!user ? 'Loading...' : 'Loading your profile...'}</p>
+      <div className="page flex items-center justify-center">
+        <div className="text-ink-2 text-center">
+          <div className="w-10 h-10 mx-auto mb-4 border-2 border-ink-3 border-t-accent rounded-full animate-spin" />
+          <p className="text-sm">{!user ? 'Loading…' : 'Loading your profile…'}</p>
         </div>
       </div>
     );
   }
 
-  // Redirect to login if not authenticated
-  if (!user) {
-    return null;
-  }
-
-  // Fallback profile if userProfile is still loading
-  const profile = userProfile || {
-    display_name: user.email?.split('@')[0] || 'User',
-    username: user.email?.split('@')[0] || 'user',
-    avatar_url: getAvatarUrl(user.email?.charAt(0).toUpperCase() || 'U')
-  };
+  if (!user) return null;
 
   return (
     <>
       <Head>
-        <title>Watch Party - Synchronized YouTube Viewing</title>
-        <meta name="description" content="Create or join watch parties to enjoy YouTube videos together in perfect sync" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/favicon.ico" />
+        <title>Party Player · Watch Together</title>
+        <meta name="description" content="Create or join a watch party for synchronized YouTube viewing." />
+        <meta name="theme-color" content="#0A0A0B" />
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#000000" />
       </Head>
 
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex flex-col">
+      <div className="page">
         <ServerStatus />
-        
-        {/* Header */}
-        <div className="w-full p-4">
-          <div className="max-w-6xl mx-auto flex justify-between items-center">
-            <div className="text-white font-bold text-xl">
-              🎬 Party Player
-            </div>
-            <div className="flex items-center space-x-4">
+
+        {/* Top bar */}
+        <header className="sticky top-0 z-30 bg-surface-1/80 backdrop-blur border-b border-line">
+          <div className="page-shell flex items-center justify-between py-3">
+            <Link href="/" className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-accent grid place-items-center text-white font-bold text-sm">P</div>
+              <span className="font-semibold tracking-tight">Party Player</span>
+            </Link>
+
+            <div className="flex items-center gap-2">
+              <Link href="/friends" className="btn-ghost hidden sm:inline-flex">
+                <i className="bi bi-people-fill" />
+                <span>Friends</span>
+              </Link>
               <Link href="/profile">
-                <div className="flex items-center space-x-2 cursor-pointer hover:bg-white/10 rounded-lg p-2 transition-colors">
+                <div className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-surface-3 transition cursor-pointer">
                   <img
                     src={profile.avatar_url}
                     alt={profile.display_name}
-                    className="w-8 h-8 rounded-full border-2 border-purple-400"
+                    className="w-8 h-8 rounded-full object-cover border border-line"
                   />
-                  <span className="text-white font-medium">{profile.display_name}</span>
+                  <span className="text-sm font-medium hidden sm:block">{profile.display_name}</span>
                 </div>
               </Link>
-              <Link href="/friends">
-                <button className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors">
-                  Friends
-                </button>
-              </Link>
-              <button
-                onClick={signOut}
-                className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors"
-              >
-                Sign Out
+              <button onClick={signOut} className="btn-ghost" aria-label="Sign out">
+                <i className="bi bi-box-arrow-right" />
               </button>
             </div>
           </div>
-        </div>
-        
-        {/* Main Content */}
-        <div className="flex-1 flex items-center justify-center p-4">
-          <div className="max-w-lg w-full space-y-8">
-            {/* Header */}
-            <div className="text-center">
-              <h1 className="text-5xl font-bold text-white mb-3 bg-gradient-to-r from-white to-purple-200 bg-clip-text text-transparent">
-                🎬 Watch Party
-              </h1>
-              <p className="text-purple-200 text-lg">
-                Watch YouTube videos together in perfect sync
-              </p>
-            </div>
+        </header>
 
-            {/* User Welcome */}
-            <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-lg rounded-2xl border border-white/20 shadow-2xl p-6">
-              <div className="flex items-center space-x-4 mb-6">
-                <img
-                  src={profile.avatar_url}
-                  alt={profile.display_name}
-                  className="w-16 h-16 rounded-2xl border-3 border-purple-400 shadow-lg"
-                />
+        {/* Hero */}
+        <main className="page-shell">
+          <section className="pt-10 pb-8 sm:pt-14 sm:pb-12 text-center max-w-2xl mx-auto animate-fade-in-up">
+            <span className="chip chip-accent mb-5">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+              Welcome back, {profile.display_name}
+            </span>
+            <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight leading-tight">
+              Watch YouTube together,
+              <br />
+              <span className="text-ink-2">in perfect sync.</span>
+            </h1>
+            <p className="text-ink-2 mt-4 text-base sm:text-lg">
+              Create a room and invite friends — playback, pauses, and seeks stay in step for everyone.
+            </p>
+          </section>
+
+          {/* Actions */}
+          <section className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl mx-auto">
+            <div className="surface-card p-6 sm:p-7">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-accent-soft text-accent grid place-items-center">
+                  <i className="bi bi-plus-lg text-xl" />
+                </div>
                 <div>
-                  <h3 className="text-white font-bold text-lg">Welcome back, {profile.display_name}!</h3>
-                  <p className="text-purple-200 text-sm">@{profile.username}</p>
+                  <h3 className="font-semibold">Create a room</h3>
+                  <p className="text-xs text-ink-2">Start a new watch party and share the code.</p>
                 </div>
               </div>
+              <button
+                onClick={createRoom}
+                disabled={isCreating}
+                className="btn-primary btn-lg w-full"
+              >
+                {isCreating ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    Creating…
+                  </span>
+                ) : (
+                  <>
+                    <i className="bi bi-arrow-right" />
+                    New Room
+                  </>
+                )}
+              </button>
+            </div>
 
-              {/* Error Display */}
-              {error && (
-                <div className="mb-6 p-4 bg-red-500/20 border border-red-500/50 rounded-xl">
-                  <p className="text-red-200 text-sm">{error}</p>
+            <div className="surface-card p-6 sm:p-7">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-surface-3 text-ink-0 grid place-items-center border border-line">
+                  <i className="bi bi-arrow-right-square text-xl" />
                 </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="space-y-4">
-                {/* Create Room */}
+                <div>
+                  <h3 className="font-semibold">Join a room</h3>
+                  <p className="text-xs text-ink-2">Got a code? Enter it below.</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <input
+                  type="text"
+                  value={roomCode}
+                  onChange={(e) => setRoomCode(e.target.value.toUpperCase().replace(/\s/g, ''))}
+                  onKeyPress={(e) => handleKeyPress(e, joinRoom)}
+                  placeholder="ABC123"
+                  maxLength={6}
+                  className="input input-lg text-center tracking-[0.4em] font-mono uppercase"
+                />
                 <button
-                  onClick={createRoom}
-                  disabled={isCreating}
-                  className="w-full group relative overflow-hidden bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 disabled:from-gray-600 disabled:to-gray-700 text-white font-bold py-4 px-6 rounded-2xl transition-all duration-300 transform hover:scale-105 disabled:hover:scale-100 shadow-2xl hover:shadow-purple-500/25"
+                  onClick={joinRoom}
+                  disabled={!roomCode.trim()}
+                  className="btn-secondary btn-lg w-full"
                 >
-                  <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                  <div className="relative flex items-center justify-center space-x-3">
-                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-                    </svg>
-                    <span>{isCreating ? 'Creating Room...' : 'Create New Room'}</span>
-                  </div>
+                  <i className="bi bi-box-arrow-in-right" />
+                  Join Room
                 </button>
-
-                {/* Join Room */}
-                <div className="space-y-3">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={roomCode}
-                      onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                      onKeyPress={(e) => handleKeyPress(e, joinRoom)}
-                      placeholder="Enter room code (e.g., ABC123)"
-                      maxLength={6}
-                      className="w-full px-6 py-4 bg-white/10 backdrop-blur-sm border border-white/30 rounded-2xl text-white placeholder-purple-200 text-center text-lg font-bold tracking-wider focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300 hover:bg-white/15"
-                    />
-                  </div>
-                  <button
-                    onClick={joinRoom}
-                    disabled={!roomCode.trim()}
-                    className="w-full group relative overflow-hidden bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-400 hover:to-purple-400 disabled:from-gray-600 disabled:to-gray-700 text-white font-bold py-4 px-6 rounded-2xl transition-all duration-300 transform hover:scale-105 disabled:hover:scale-100 shadow-2xl hover:shadow-indigo-500/25"
-                  >
-                    <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                    <div className="relative flex items-center justify-center space-x-3">
-                      <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" />
-                      </svg>
-                      <span>Join Room</span>
-                    </div>
-                  </button>
-                </div>
               </div>
             </div>
+          </section>
 
-            {/* Features */}
-            <div className="text-center space-y-2">
-              <div className="text-purple-200 text-sm">
-                ✨ Synchronized video playback • 💬 Real-time chat • 👥 Friend system
-              </div>
-              <div className="text-purple-300 text-xs">
-                Invite friends and watch together!
-              </div>
+          {error && (
+            <div className="max-w-3xl mx-auto mt-4 p-3 rounded-xl bg-danger-soft border border-danger/30 text-danger text-sm text-center">
+              {error}
             </div>
-          </div>
-        </div>
+          )}
+
+          {/* Features strip */}
+          <section className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl mx-auto">
+            <Feature icon="bi-play-fill" title="Synced playback" desc="Pause, play, seek — everyone follows the host." />
+            <Feature icon="bi-chat-dots" title="Live chat" desc="Real-time messages in every room." />
+            <Feature icon="bi-people-fill" title="Friends & invites" desc="Add friends and send room invites instantly." />
+          </section>
+
+          <footer className="text-center text-xs text-ink-3 mt-12 mb-6">
+            Built for synced entertainment · v1
+          </footer>
+        </main>
       </div>
     </>
+  );
+}
+
+function Feature({ icon, title, desc }) {
+  return (
+    <div className="surface-flat p-4 flex gap-3 items-start">
+      <div className="w-9 h-9 rounded-lg bg-surface-3 border border-line grid place-items-center text-accent shrink-0">
+        <i className={`bi ${icon}`} />
+      </div>
+      <div>
+        <div className="text-sm font-medium">{title}</div>
+        <div className="text-xs text-ink-2 mt-0.5">{desc}</div>
+      </div>
+    </div>
   );
 }

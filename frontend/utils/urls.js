@@ -1,7 +1,7 @@
 // Utility functions for external API URLs
 export const getAvatarUrl = (seed) => {
   const baseUrl = process.env.NEXT_PUBLIC_DICEBEAR_API_URL || 'https://api.dicebear.com/7.x/initials/svg'
-  return `${baseUrl}?seed=${encodeURIComponent(seed)}&backgroundColor=7c3aed,a855f7,ec4899&textColor=ffffff`
+  return `${baseUrl}?seed=${encodeURIComponent(seed)}&backgroundColor=1c1c20,26262c,3b82f6&textColor=ffffff`
 }
 
 export const getYouTubeApiUrl = () => {
