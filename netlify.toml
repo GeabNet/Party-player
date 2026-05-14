@@ -8,7 +8,7 @@
 
 [build.environment]
   # Set the Node.js version
-  NODE_VERSION = "18"
+  NODE_VERSION = "20"
 
 # Use Netlify's Next.js plugin for full SSR support
 [[plugins]]

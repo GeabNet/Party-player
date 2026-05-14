@@ -232,7 +232,7 @@ export default function Profile() {
                   disabled
                   className="input opacity-60 cursor-not-allowed"
                 />
-                <p className="helper">Usernames can't be changed.</p>
+                <p className="helper">Usernames can&apos;t be changed.</p>
               </div>
               <div>
                 <label className="label">Email</label>
