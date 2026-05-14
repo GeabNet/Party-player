@@ -327,7 +327,7 @@ export default function Friends() {
 
                 {activeTab === 'requests' && (
                   pendingRequests.length === 0 ? (
-                    <EmptyState icon="bi-envelope" title="No pending requests" hint="You're all caught up." />
+                    <EmptyState icon="bi-envelope" title="No pending requests" hint="You&apos;re all caught up." />
                   ) : (
                     <ul className="space-y-2">
                       {pendingRequests.map(r => (
